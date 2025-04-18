@@ -1,0 +1,18 @@
+spring:
+  data:
+    redis:
+      database: 2    #1库：运营平台  #2库：商户系统 #3库：支付网关
+  application:
+    name: jeepay-merchant
+  profiles:
+    active: dev
+  main:
+    allow-circular-references: true
+  config:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+    import:
+      - optional:classpath:application-${spring.profiles.active}.yaml
+      - optional:nacos:${spring.application.name}-${spring.profiles.active}.yaml

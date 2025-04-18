@@ -1,0 +1,17 @@
+# application-dev.yaml（最终修正版）
+spring:
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 8.133.246.113:8848  # HTTP 通信地址（必选）
+        namespace: d750d92e-152f-4055-a641-3bc9dda85a29  # 命名空间
+        group: DEFAULT_GROUP
+        grpc:
+          enabled: true  # 启用 GRPC 通信（默认 true，显式声明更安全）
+          server-addr: 8.133.246.113:9848  # GRPC 专用端口（必须与服务端一致，默认 9848）
+      config:
+        server-addr: ${spring.cloud.nacos.discovery.server-addr}  # 复用 HTTP 地址
+        namespace: ${spring.cloud.nacos.discovery.namespace}
+        group: ${spring.cloud.nacos.discovery.group}
+        file-extension: yaml
+        refresh-enabled: true
