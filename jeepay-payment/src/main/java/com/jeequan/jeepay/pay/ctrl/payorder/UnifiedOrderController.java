@@ -21,10 +21,14 @@ import com.jeequan.jeepay.core.entity.PayWay;
 import com.jeequan.jeepay.core.exception.BizException;
 import com.jeequan.jeepay.core.model.ApiRes;
 import com.jeequan.jeepay.core.utils.JeepayKit;
+import com.jeequan.jeepay.pay.rqrs.msg.ChannelRetMsg;
 import com.jeequan.jeepay.pay.rqrs.payorder.UnifiedOrderRQ;
 import com.jeequan.jeepay.pay.rqrs.payorder.UnifiedOrderRS;
 import com.jeequan.jeepay.pay.rqrs.payorder.payway.AutoBarOrderRQ;
 import com.jeequan.jeepay.pay.service.ConfigContextQueryService;
+import com.jeequan.jeepay.pay.service.PayOrderDistributedTransactionService;
+import com.jeequan.jeepay.pay.model.MchAppConfigContext;
+import com.jeequan.jeepay.service.impl.PayOrderService;
 import com.jeequan.jeepay.service.impl.PayWayService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -45,6 +49,8 @@ public class UnifiedOrderController extends AbstractPayOrderController {
 
     @Autowired private PayWayService payWayService;
     @Autowired private ConfigContextQueryService configContextQueryService;
+    @Autowired private PayOrderDistributedTransactionService payOrderDistributedTransactionService;
+    @Autowired private PayOrderService payOrderService;
 
     /**
      * 统一下单接口
@@ -105,5 +111,31 @@ public class UnifiedOrderController extends AbstractPayOrderController {
         return rq.buildBizRQ();
     }
 
-
+    /**
+     * 重写父类方法，使用分布式事务处理支付请求
+     */
+    @Override
+    protected ApiRes unifiedOrder(String wayCode, UnifiedOrderRQ bizRQ, PayOrder payOrder) {
+        
+        try {
+            // 获取商户应用配置信息
+            MchAppConfigContext mchAppConfigContext = configContextQueryService.queryMchInfoAndAppInfo(bizRQ.getMchNo(), bizRQ.getAppId());
+            if (mchAppConfigContext == null) {
+                throw new BizException("获取商户应用信息失败");
+            }
+            
+            // 使用分布式事务服务处理支付请求
+            ChannelRetMsg channelRetMsg = payOrderDistributedTransactionService.handlePayTransaction(
+                    wayCode, bizRQ, payOrder, mchAppConfigContext);
+            
+            // 使用父类的统一下单方法处理后续逻辑
+            return super.unifiedOrder(wayCode, bizRQ, payOrder);
+            
+        } catch (BizException e) {
+            return ApiRes.customFail(e.getMessage());
+        } catch (Exception e) {
+            log.error("统一下单异常：", e);
+            return ApiRes.customFail("系统异常");
+        }
+    }
 }

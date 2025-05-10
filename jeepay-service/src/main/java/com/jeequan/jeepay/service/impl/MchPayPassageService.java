@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -93,7 +94,7 @@ public class MchPayPassageService extends ServiceImpl<MchPayPassageMapper, MchPa
                 payPassage.setMchNo(mchNo);
             }
             if (payPassage.getRate() != null) {
-                payPassage.setRate(payPassage.getRate().divide(new BigDecimal("100"), 6, BigDecimal.ROUND_HALF_UP));
+                payPassage.setRate(payPassage.getRate().divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP));
             }
             if (!saveOrUpdate(payPassage)) {
                 throw new BizException("操作失败");
@@ -135,5 +136,19 @@ public class MchPayPassageService extends ServiceImpl<MchPayPassageMapper, MchPa
         return null;
     }
 
+    /**
+     * 查找可用的支付通道列表（除当前通道外的备用通道）
+     * 用于支付渠道熔断后的备用通道选择
+     */
+    public List<MchPayPassage> findAvailablePayPassageByWayCode(String mchNo, String appId, String wayCode) {
+        
+        return list(MchPayPassage.gw()
+                .eq(MchPayPassage::getMchNo, mchNo)
+                .eq(MchPayPassage::getAppId, appId)
+                .eq(MchPayPassage::getWayCode, wayCode)
+                .eq(MchPayPassage::getState, CS.YES)
+                .ne(MchPayPassage::getId, 0) // 排除当前通道
+                .orderByAsc(MchPayPassage::getId));
+    }
 
 }

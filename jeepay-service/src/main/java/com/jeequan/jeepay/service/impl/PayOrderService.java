@@ -120,6 +120,16 @@ public class PayOrderService extends ServiceImpl<PayOrderMapper, PayOrder> {
                 .eq(PayOrder::getPayOrderId, payOrderId).eq(PayOrder::getState, PayOrder.STATE_ING));
     }
 
+    /** 更新订单状态  【支付中】 --》 【支付失败】(仅通过订单ID) **/
+    public boolean updateIng2FailByOrderId(String payOrderId){
+        PayOrder updateRecord = new PayOrder();
+        updateRecord.setState(PayOrder.STATE_FAIL);
+        updateRecord.setErrCode("COMPENSATION_FAIL");
+        updateRecord.setErrMsg("支付补偿失败");
+
+        return update(updateRecord, new LambdaUpdateWrapper<PayOrder>()
+                .eq(PayOrder::getPayOrderId, payOrderId).eq(PayOrder::getState, PayOrder.STATE_ING));
+    }
 
     /** 更新订单状态  【支付中】 --》 【支付成功/支付失败】 **/
     public boolean updateIng2SuccessOrFail(String payOrderId, Byte updateState, String channelOrderNo, String channelUserId, String channelErrCode, String channelErrMsg){
