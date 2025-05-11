@@ -1,0 +1,53 @@
+spring:
+  main:
+    allow-circular-references: true
+  servlet:
+    multipart:
+      enabled: true
+      max-request-size: 10MB
+      max-file-size: 10MB
+  freemarker:
+    template-loader-path: classpath:/templates
+    template-encoding: UTF-8
+    suffix: .ftl
+    settings:
+      classic_compatible: true
+      number_format: '#'
+  datasource:
+    dynamic:
+      primary: mysql
+      datasource:
+        mysql:
+          url: jdbc:mysql://8.133.246.113:3306/jiangyangpay?zeroDateTimeBehavior=convertToNull&useUnicode=true&characterEncoding=utf-8&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true
+          username: bgtech
+          password: Zly689258..
+          driver-class-name: com.mysql.cj.jdbc.Driver
+          druid:
+            initial-size: 5
+            min-idle: 5
+            max-active: 30
+            max-wait: 60000
+            test-while-idle: true
+            test-on-borrow: false
+            test-on-return: false
+            time-between-eviction-runs-millis: 60000
+            min-evictable-idle-time-millis: 300000
+            validation-query: SELECT 1 FROM DUAL
+            pool-prepared-statements: false
+            max-pool-prepared-statement-per-connection-size: 20
+            filters: stat,wall
+            connection-properties: druid.stat.mergeSql=true;druid.stat.slowSqlMillis=5000
+        postgres:
+          url: jdbc:postgresql://127.0.0.1:5432/yourdb?currentSchema=public
+          username: your_pg_user
+          password: your_pg_password
+          driver-class-name: org.postgresql.Driver
+          druid:
+            initial-size: 3
+            min-idle: 3
+            max-active: 10
+            max-wait: 60000
+            validation-query: SELECT 1
+            test-while-idle: true
+            test-on-borrow: false
+            test-on-return: false 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2031, 河北计全科技有限公司 (https://www.jeequan.com & jeequan@126.com).
+ * Copyright (c) 2021-2031, 江阳科技有限公司
  * <p>
  * Licensed under the GNU LESSER GENERAL PUBLIC LICENSE 3.0;
  * you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@ import java.util.List;
 /**
  * 业务： 支付订单分账处理逻辑
  * @author terrfly
- * @site https://www.jeequan.com
+ * @site curverun.com
  * @date 2021/8/27 9:43
  */
 @Slf4j
@@ -69,7 +69,7 @@ public class PayOrderDivisionProcessService {
      * 2 若正常调起接口将返回渠道侧响应结果
     *
     * @author terrfly
-    * @site https://www.jeequan.com
+    * @site curverun.com
     * @date 2021/8/27 9:44
     */
     public ChannelRetMsg processPayOrderDivision(String payOrderId, Byte useSysAutoDivisionReceivers, List<PayOrderDivisionMQ.CustomerDivisionReceiver> receiverList, Boolean isResend) {

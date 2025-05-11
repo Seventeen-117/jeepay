@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2031, 河北计全科技有限公司 (https://www.jeequan.com & jeequan@126.com).
+ * Copyright (c) 2021-2031, 江阳科技有限公司
  * <p>
  * Licensed under the GNU LESSER GENERAL PUBLIC LICENSE 3.0;
  * you may not use this file except in compliance with the License.
@@ -47,7 +47,7 @@ import java.util.*;
 // https://opendocs.alipay.com/open/20190308105425129272/quickstart#%E8%9A%82%E8%9A%81%E6%B6%88%E6%81%AF%EF%BC%9A%E4%BA%A4%E6%98%93%E5%88%86%E8%B4%A6%E7%BB%93%E6%9E%9C%E9%80%9A%E7%9F%A5
 *
 * @author terrfly
-* @site https://www.jeequan.com
+* @site curverun.com
 * @date 2023/3/30 12:20
 */
 @Service

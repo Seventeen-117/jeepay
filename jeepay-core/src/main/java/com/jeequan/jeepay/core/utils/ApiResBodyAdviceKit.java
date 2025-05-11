@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2031, 河北计全科技有限公司 (https://www.jeequan.com & jeequan@126.com).
+ * Copyright (c) 2021-2031, 江阳科技有限公司
  * <p>
  * Licensed under the GNU LESSER GENERAL PUBLIC LICENSE 3.0;
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ import java.util.Collection;
  *      2. 处理model的扩展字段 (只需要在model中设置[ext]参数， 可以实现json自动转换为外层字段。 )
  *         比如 model为 {id:1, ext:{abc:222}}  则自动转换为： {id:1, abc:222}
 * @author terrfly
-* @site https://www.jeequan.com
+* @site curverun.com
 * @date 2021/6/8 16:49
 */
 public class ApiResBodyAdviceKit {

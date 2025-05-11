@@ -6,7 +6,7 @@ import com.jeequan.jeepay.core.entity.PayOrder;
 * 码牌相关逻辑
 *
 * @author terrfly
-* @site https://www.jeequan.com
+* @site curverun.com
 * @date 2024/11/4 15:08
 */
 public interface IMchQrcodeManager {

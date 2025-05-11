@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2031, 河北计全科技有限公司 (https://www.jeequan.com & jeequan@126.com).
+ * Copyright (c) 2021-2031, 江阳科技有限公司
  * <p>
  * Licensed under the GNU LESSER GENERAL PUBLIC LICENSE 3.0;
  * you may not use this file except in compliance with the License.
@@ -57,8 +57,8 @@ import java.util.stream.Collectors;
  * 支付订单分布式事务处理服务
  * 实现两阶段提交协议和SAGA事务补偿机制
  *
- * @author jeepay
- * @site https://www.jeequan.com
+ * @author jiangyangpay
+ * @site curverun.com
  * @date 2023/8/12
  */
 @Service
@@ -280,8 +280,9 @@ public class PayOrderDistributedTransactionService {
     
     /**
      * 比较两个支付通道的优先级
-     * 优先级由：权重、成功率、响应时间综合决定
+     * 预留智能路由扩展
      */
+    @SuppressWarnings("unused")
     private int compareChannelPriority(MchPayPassage p1, MchPayPassage p2) {
         // 获取通道权重
         Integer weight1 = channelWeightCache.getOrDefault(p1.getIfCode(), 100);
@@ -301,8 +302,9 @@ public class PayOrderDistributedTransactionService {
     
     /**
      * 选择最佳支付通道
-     * 实现智能路由策略
+     * 预留智能路由扩展
      */
+    @SuppressWarnings("unused")
     private MchPayPassage selectBestPaymentChannel(String mchNo, String appId, String wayCode) {
         // 获取所有可用的支付通道
         List<MchPayPassage> availablePassages = findAvailableBackupChannels(mchNo, appId, wayCode, null);

@@ -42,7 +42,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding> <!-- 项目构建输出编码 -->
 
     <!-- 其他工具包 -->
-    <jeepay.sdk.java.version>1.6.1</jeepay.sdk.java.version>
+    <jeepay.sdk.java.version>pls-1.3.0</jeepay.sdk.java.version>
     <fastjson.version>1.2.83</fastjson.version> <!-- fastjson -->
     <mybatis.plus.starter.version>3.5.7</mybatis.plus.starter.version>  <!-- mybatis plus -->
     <hutool.util.version>5.8.26</hutool.util.version>  <!-- hutool -->
@@ -202,6 +202,47 @@
             <groupId>io.swagger.core.v3</groupId>
             <artifactId>swagger-models-jakarta</artifactId>
             <version>2.2.21</version>
+        </dependency>
+
+        <!-- resilience4j 统一版本管理 -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot2</artifactId>
+            <version>1.7.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-circuitbreaker</artifactId>
+            <version>1.7.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-timelimiter</artifactId>
+            <version>1.7.0</version>
+        </dependency>
+        <!-- paypal sdk 统一版本管理 -->
+        <dependency>
+            <groupId>com.paypal.sdk</groupId>
+            <artifactId>checkout-sdk</artifactId>
+            <version>1.0.5</version>
+        </dependency>
+        <!-- redisson 统一版本管理 -->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson</artifactId>
+            <version>3.17.0</version>
+        </dependency>
+        <!-- micrometer prometheus 统一版本管理 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <version>1.11.5</version>
+        </dependency>
+        <!-- jakarta.activation 统一版本管理 -->
+        <dependency>
+            <groupId>jakarta.activation</groupId>
+            <artifactId>jakarta.activation-api</artifactId>
+            <version>1.2.2</version>
         </dependency>
     </dependencies>
 

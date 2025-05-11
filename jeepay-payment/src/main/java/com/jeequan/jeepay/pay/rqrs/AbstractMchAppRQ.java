@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2031, 河北计全科技有限公司 (https://www.jeequan.com & jeequan@126.com).
+ * Copyright (c) 2021-2031, 江阳科技有限公司
  * <p>
  * Licensed under the GNU LESSER GENERAL PUBLIC LICENSE 3.0;
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import jakarta.validation.constraints.NotBlank;
 * 通用RQ, 包含mchNo和appId 必填项
 *
 * @author terrfly
-* @site https://www.jeequan.com
+* @site curverun.com
 * @date 2021/6/16 10:30
 */
 @Data
