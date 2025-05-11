@@ -171,7 +171,7 @@ public class SysUserService extends ServiceImpl<SysUserMapper, SysUser> {
                 .in(SysUserAuth::getUserId, sysUser.getSysUserId())
         );
         // 2.删除用户角色信息
-        sysUserRoleRelaService.removeById(sysUser.getSysUserId());
+        sysUserRoleRelaService.removeByUserId(sysUser.getSysUserId());
         // 3.删除用户信息
         removeById(sysUser.getSysUserId());
     }

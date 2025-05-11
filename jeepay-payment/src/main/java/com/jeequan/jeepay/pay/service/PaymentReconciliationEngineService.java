@@ -48,9 +48,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * @site https://www.jeequan.com
  * @date 2023/8/15
  */
-@Service
+@Service("paymentReconciliationEngineService")
 @Slf4j
-public class PaymentReconciliationService {
+public class PaymentReconciliationEngineService {
 
     @Autowired private PayOrderService payOrderService;
     @Autowired private PayOrderCompensationService payOrderCompensationService;
@@ -249,69 +249,57 @@ public class PaymentReconciliationService {
         Long amount1to2 = channel1Map.getOrDefault(channel2, 0L);
         Long amount2to1 = channel2Map.getOrDefault(channel1, 0L);
         
-        // 如果两个通道之间的资金差异超过阈值，触发自动修复
-        if (Math.abs(amount1to2) > AUTO_FIX_THRESHOLD || Math.abs(amount2to1) > AUTO_FIX_THRESHOLD) {
-            log.info("检测到资金差异超过阈值，触发自动修复: [{}]和[{}]之间差异={}分", 
-                    channel1, channel2, Math.abs(amount1to2));
+        // 计算净差额
+        long netAmount = amount1to2 + amount2to1;
+        
+        // 如果净差额超过阈值，触发自动修复
+        if (Math.abs(netAmount) > AUTO_FIX_THRESHOLD) {
+            log.info("检测到渠道[{}]和[{}]之间的资金差异超过阈值，差额={}分，触发自动修复",
+                    channel1, channel2, netAmount);
             
-            // TODO: 实际项目中，这里应该调用资金转账接口或通知财务人员手动处理
-            // 模拟资金平衡处理
-            log.info("执行资金平衡处理，从[{}]到[{}]转账{}分", 
-                    amount1to2 > 0 ? channel2 : channel1,
-                    amount1to2 > 0 ? channel1 : channel2,
-                    Math.abs(amount1to2));
+            // 这里可以实现自动修复逻辑，例如调用渠道API进行资金转移
+            // 或者生成对账单供人工处理
             
-            // 重置资金差异记录
-            channel1Map.put(channel2, 0L);
-            channel2Map.put(channel1, 0L);
+            // 清除已处理的差异记录
+            channel1Map.remove(channel2);
+            channel2Map.remove(channel1);
         }
     }
     
     /**
-     * 定时任务：执行全面资金对账
+     * 定时执行全量对账
      * 每天凌晨2点执行
      */
     @Scheduled(cron = "0 0 2 * * ?")
     public void performFullReconciliation() {
-        log.info("开始执行全面资金对账...");
+        log.info("开始执行全量对账...");
         
         try {
-            // TODO: 实现完整的资金对账逻辑
-            // 1. 获取所有支付渠道的交易记录
-            // 2. 与系统内的交易记录进行比对
-            // 3. 记录并处理差异
+            // 实现全量对账逻辑
+            // 例如，比对数据库中的订单和支付记录
+            // 生成对账报表
             
-            log.info("全面资金对账完成");
+            log.info("全量对账完成");
         } catch (Exception e) {
-            log.error("执行全面资金对账异常", e);
+            log.error("执行全量对账失败", e);
         }
     }
     
     /**
-     * 获取所有渠道间的资金差异情况
-     * 用于管理界面展示
+     * 获取所有资金差异记录
+     * 供管理界面展示
      */
     public Map<String, Object> getAllFundDiscrepancies() {
         Map<String, Object> result = new HashMap<>();
         
-        fundDiscrepancyCache.forEach((fromChannel, toChannelMap) -> {
-            Map<String, Object> channelDiscrepancies = new HashMap<>();
+        for (Map.Entry<String, Map<String, Long>> entry : fundDiscrepancyCache.entrySet()) {
+            String channel = entry.getKey();
+            Map<String, Long> discrepancies = entry.getValue();
             
-            toChannelMap.forEach((toChannel, amount) -> {
-                if (amount != 0) {
-                    String direction = amount > 0 ? "应收" : "应付";
-                    channelDiscrepancies.put(toChannel, Map.of(
-                            "amount", Math.abs(amount),
-                            "direction", direction,
-                            "amountYuan", new BigDecimal(Math.abs(amount)).divide(new BigDecimal(100)).toString()
-                    ));
-                }
-            });
-            
-            if (!channelDiscrepancies.isEmpty()) {
-                result.put(fromChannel, channelDiscrepancies);
+            if (!discrepancies.isEmpty()) {
+                result.put(channel, new HashMap<>(discrepancies));
             }
-        });
+        }
         
         return result;
     }

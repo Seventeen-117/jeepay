@@ -26,6 +26,7 @@ import com.jeequan.jeepay.pay.rqrs.payorder.UnifiedOrderRQ;
 import com.jeequan.jeepay.pay.rqrs.payorder.UnifiedOrderRS;
 import com.jeequan.jeepay.pay.rqrs.payorder.payway.AutoBarOrderRQ;
 import com.jeequan.jeepay.pay.service.ConfigContextQueryService;
+import com.jeequan.jeepay.pay.service.FallbackPaymentService;
 import com.jeequan.jeepay.pay.service.PayOrderDistributedTransactionService;
 import com.jeequan.jeepay.pay.model.MchAppConfigContext;
 import com.jeequan.jeepay.service.impl.PayOrderService;
@@ -33,7 +34,9 @@ import com.jeequan.jeepay.service.impl.PayWayService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /*
@@ -51,6 +54,7 @@ public class UnifiedOrderController extends AbstractPayOrderController {
     @Autowired private ConfigContextQueryService configContextQueryService;
     @Autowired private PayOrderDistributedTransactionService payOrderDistributedTransactionService;
     @Autowired private PayOrderService payOrderService;
+    @Autowired private FallbackPaymentService fallbackPaymentService;
 
     /**
      * 统一下单接口
@@ -83,7 +87,73 @@ public class UnifiedOrderController extends AbstractPayOrderController {
 
         return ApiRes.okWithSign(res, configContextQueryService.queryMchApp(rq.getMchNo(), rq.getAppId()).getAppSecret());
     }
-
+    
+    /**
+     * 备用支付接口
+     * 当主支付渠道失败时，可以手动触发备用支付通道
+     **/
+    @PostMapping("/api/pay/fallbackPayment/{payOrderId}")
+    public ApiRes fallbackPayment(@PathVariable("payOrderId") String payOrderId, 
+                                 @RequestParam(value = "wayCode", required = false) String wayCode) {
+        try {
+            // 查询订单信息
+            PayOrder payOrder = payOrderService.getById(payOrderId);
+            if (payOrder == null) {
+                return ApiRes.customFail("订单不存在");
+            }
+            
+            // 检查订单状态，只有初始化或处理中的订单才能进行备用支付
+            if (payOrder.getState() != PayOrder.STATE_INIT && payOrder.getState() != PayOrder.STATE_ING) {
+                return ApiRes.customFail("订单状态不允许进行备用支付");
+            }
+            
+            // 如果未指定支付方式，则使用订单原支付方式
+            if (wayCode == null || wayCode.isEmpty()) {
+                wayCode = payOrder.getWayCode();
+            }
+            
+            // 获取商户应用配置信息
+            MchAppConfigContext mchAppConfigContext = configContextQueryService.queryMchInfoAndAppInfo(
+                    payOrder.getMchNo(), payOrder.getAppId());
+            if (mchAppConfigContext == null) {
+                return ApiRes.customFail("获取商户应用信息失败");
+            }
+            
+            // 构建支付请求对象
+            UnifiedOrderRQ bizRQ = new UnifiedOrderRQ();
+            bizRQ.setMchNo(payOrder.getMchNo());
+            bizRQ.setAppId(payOrder.getAppId());
+            bizRQ.setMchOrderNo(payOrder.getMchOrderNo());
+            bizRQ.setWayCode(wayCode);
+            bizRQ.setAmount(payOrder.getAmount());
+            bizRQ.setCurrency(payOrder.getCurrency());
+            bizRQ.setClientIp(payOrder.getClientIp());
+            bizRQ.setSubject(payOrder.getSubject());
+            bizRQ.setBody(payOrder.getBody());
+            bizRQ.setNotifyUrl(payOrder.getNotifyUrl());
+            bizRQ.setReturnUrl(payOrder.getReturnUrl());
+            bizRQ.setExpiredTime(payOrder.getExpiredTime());
+            
+            // 调用备用支付服务
+            ChannelRetMsg channelRetMsg = fallbackPaymentService.fallbackPayment(
+                    wayCode, bizRQ, payOrder, mchAppConfigContext);
+            
+            // 处理返回结果
+            if (channelRetMsg.getChannelState() == ChannelRetMsg.ChannelState.CONFIRM_SUCCESS) {
+                return ApiRes.ok("备用支付成功");
+            } else if (channelRetMsg.getChannelState() == ChannelRetMsg.ChannelState.WAITING) {
+                return ApiRes.ok("备用支付处理中，请等待结果");
+            } else {
+                return ApiRes.customFail("备用支付失败: " + channelRetMsg.getChannelErrMsg());
+            }
+            
+        } catch (BizException e) {
+            return ApiRes.customFail(e.getMessage());
+        } catch (Exception e) {
+            log.error("备用支付异常：", e);
+            return ApiRes.customFail("系统异常");
+        }
+    }
 
     private UnifiedOrderRQ buildBizRQ(UnifiedOrderRQ rq){
 

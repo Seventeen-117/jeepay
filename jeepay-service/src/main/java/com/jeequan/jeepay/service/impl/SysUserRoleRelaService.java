@@ -31,4 +31,36 @@ import org.springframework.stereotype.Service;
 @Service
 public class SysUserRoleRelaService extends ServiceImpl<SysUserRoleRelaMapper, SysUserRoleRela> {
 
+    /**
+     * 根据用户ID删除关联记录
+     * @param userId 用户ID
+     * @return 是否成功
+     */
+    public boolean removeByUserId(Long userId) {
+        return this.remove(SysUserRoleRela.gw().eq(SysUserRoleRela::getUserId, userId));
+    }
+
+    /**
+     * 根据复合主键查询记录
+     * @param userId 用户ID
+     * @param roleId 角色ID
+     * @return 关联记录
+     */
+    public SysUserRoleRela getByUserIdAndRoleId(Long userId, String roleId) {
+        return this.getOne(SysUserRoleRela.gw()
+                .eq(SysUserRoleRela::getUserId, userId)
+                .eq(SysUserRoleRela::getRoleId, roleId));
+    }
+
+    /**
+     * 根据复合主键删除记录
+     * @param userId 用户ID
+     * @param roleId 角色ID
+     * @return 是否成功
+     */
+    public boolean removeByUserIdAndRoleId(Long userId, String roleId) {
+        return this.remove(SysUserRoleRela.gw()
+                .eq(SysUserRoleRela::getUserId, userId)
+                .eq(SysUserRoleRela::getRoleId, roleId));
+    }
 }

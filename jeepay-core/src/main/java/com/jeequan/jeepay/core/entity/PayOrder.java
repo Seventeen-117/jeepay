@@ -121,6 +121,12 @@ public class PayOrder extends BaseModel implements Serializable {
      */
     @Schema(title = "ifCode", description = "支付接口代码")
     private String ifCode;
+    
+    /**
+     * 备用支付接口代码
+     */
+    @Schema(title = "backupIfCode", description = "备用支付接口代码")
+    private String backupIfCode;
 
     /**
      * 支付方式代码

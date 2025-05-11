@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 支付渠道度量指标
- * 用于支付渠道的熔断机制
+ * 用于记录支付渠道的调用情况，为熔断和智能路由提供数据支持
  *
  * @author jeepay
  * @site https://www.jeequan.com
@@ -33,153 +33,77 @@ import java.util.concurrent.atomic.AtomicLong;
 @NoArgsConstructor
 public class PayChannelMetrics {
     
-    // 总调用次数
-    private final AtomicInteger callCount = new AtomicInteger(0);
-    
-    // 成功次数
-    private final AtomicInteger successCount = new AtomicInteger(0);
-    
-    // 错误次数
-    private final AtomicInteger errorCount = new AtomicInteger(0);
-    
-    // 总响应时间
-    private final AtomicLong totalResponseTime = new AtomicLong(0);
-    
-    // 最后调用时间
-    private long lastCallTime;
-    
-    // 熔断器状态: CLOSED(0), OPEN(1), HALF_OPEN(2)
-    private int circuitBreakerState = 0;
-    
-    // 熔断器打开时间
-    private long circuitBreakerOpenTime;
-    
-    // 半开状态下的连续成功次数
-    private final AtomicInteger consecutiveSuccessCount = new AtomicInteger(0);
-    
-    // 半开状态下允许的尝试请求次数
-    private final AtomicInteger halfOpenAllowedRequests = new AtomicInteger(0);
-    
-    // 半开状态下需要的连续成功次数
-    private static final int HALF_OPEN_SUCCESS_THRESHOLD = 3;
+    /**
+     * 接口代码
+     */
+    private String ifCode;
     
     /**
-     * 增加调用次数
+     * 调用总次数
      */
-    public void incrementCallCount() {
-        callCount.incrementAndGet();
-    }
+    private AtomicLong callCount;
     
     /**
-     * 增加成功次数
+     * 成功次数
      */
-    public void incrementSuccessCount() {
-        successCount.incrementAndGet();
+    private AtomicLong successCount;
+    
+    /**
+     * 失败次数
+     */
+    private AtomicLong failureCount;
+    
+    /**
+     * 总响应时间（毫秒）
+     */
+    private AtomicLong totalResponseTime;
+    
+    /**
+     * 平均响应时间（毫秒）
+     */
+    private long avgResponseTime;
+    
+    /**
+     * 最后一次成功时间（毫秒时间戳）
+     */
+    private long lastSuccessTime;
+    
+    /**
+     * 最后一次失败时间（毫秒时间戳）
+     */
+    private long lastFailureTime;
+    
+    /**
+     * 计算成功率
+     * @return 成功率（0-1之间的小数）
+     */
+    public double getSuccessRate() {
+        if (callCount == null || callCount.get() == 0) {
+            return 1.0; // 没有调用记录时，默认成功率为100%
+        }
         
-        // 如果处于半开状态，增加连续成功次数
-        if (isCircuitBreakerHalfOpen()) {
-            int consecutive = consecutiveSuccessCount.incrementAndGet();
-            
-            // 如果连续成功次数达到阈值，关闭熔断器
-            if (consecutive >= HALF_OPEN_SUCCESS_THRESHOLD) {
-                closeCircuitBreaker();
-            }
-        }
+        return (double) successCount.get() / callCount.get();
     }
     
     /**
-     * 增加错误次数
+     * 计算失败率
+     * @return 失败率（0-1之间的小数）
      */
-    public void incrementErrorCount() {
-        errorCount.incrementAndGet();
+    public double getFailureRate() {
+        if (callCount == null || callCount.get() == 0) {
+            return 0.0; // 没有调用记录时，默认失败率为0%
+        }
         
-        // 如果处于半开状态，立即重新打开熔断器
-        if (isCircuitBreakerHalfOpen()) {
-            openCircuitBreaker();
-        }
+        return (double) failureCount.get() / callCount.get();
     }
     
     /**
-     * 更新响应时间
-     */
-    public void updateResponseTime(long responseTime) {
-        totalResponseTime.addAndGet(responseTime);
-    }
-    
-    /**
-     * 获取平均响应时间
-     */
-    public double getAverageResponseTime() {
-        int count = callCount.get();
-        if (count == 0) {
-            return 0;
-        }
-        return (double) totalResponseTime.get() / count;
-    }
-    
-    /**
-     * 打开熔断器
-     */
-    public void openCircuitBreaker() {
-        this.circuitBreakerState = 1; // OPEN
-        this.circuitBreakerOpenTime = System.currentTimeMillis();
-        this.consecutiveSuccessCount.set(0);
-    }
-    
-    /**
-     * 将熔断器设置为半开状态
-     */
-    public void halfOpenCircuitBreaker() {
-        this.circuitBreakerState = 2; // HALF_OPEN
-        this.consecutiveSuccessCount.set(0);
-        this.halfOpenAllowedRequests.set(HALF_OPEN_SUCCESS_THRESHOLD);
-    }
-    
-    /**
-     * 关闭熔断器
-     */
-    public void closeCircuitBreaker() {
-        this.circuitBreakerState = 0; // CLOSED
-        this.consecutiveSuccessCount.set(0);
-    }
-    
-    /**
-     * 重置熔断器
+     * 重置熔断器状态
+     * 清空错误计数和熔断状态
      */
     public void resetCircuitBreaker() {
-        this.circuitBreakerState = 0; // CLOSED
-        this.errorCount.set(0);
-        this.callCount.set(0);
-        this.successCount.set(0);
-        this.totalResponseTime.set(0);
-        this.consecutiveSuccessCount.set(0);
-    }
-    
-    /**
-     * 检查熔断器是否处于打开状态
-     */
-    public boolean isCircuitBreakerOpen() {
-        return this.circuitBreakerState == 1;
-    }
-    
-    /**
-     * 检查熔断器是否处于半开状态
-     */
-    public boolean isCircuitBreakerHalfOpen() {
-        return this.circuitBreakerState == 2;
-    }
-    
-    /**
-     * 检查熔断器是否处于关闭状态
-     */
-    public boolean isCircuitBreakerClosed() {
-        return this.circuitBreakerState == 0;
-    }
-    
-    /**
-     * 半开状态下是否允许请求通过
-     */
-    public boolean allowRequestInHalfOpenState() {
-        return halfOpenAllowedRequests.decrementAndGet() >= 0;
+        if (failureCount != null) {
+            failureCount.set(0);
+        }
     }
 } 

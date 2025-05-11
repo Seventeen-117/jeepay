@@ -29,6 +29,8 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
+import java.util.Date;
+
 /*
 * 创建订单请求参数对象
 * 聚合支付接口（统一下单）
@@ -75,7 +77,7 @@ public class UnifiedOrderRQ extends AbstractMchAppRQ {
     private String returnUrl;
 
     /** 订单失效时间, 单位：秒 **/
-    private Integer expiredTime;
+    private Date expiredTime;
 
     /** 特定渠道发起额外参数 **/
     private String channelExtra;

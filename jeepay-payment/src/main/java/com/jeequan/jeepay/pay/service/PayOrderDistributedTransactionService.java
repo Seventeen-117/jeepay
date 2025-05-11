@@ -20,6 +20,7 @@ import com.jeequan.jeepay.components.mq.vender.IMQSender;
 import com.jeequan.jeepay.core.constants.CS;
 import com.jeequan.jeepay.core.entity.PayOrder;
 import com.jeequan.jeepay.core.entity.MchPayPassage;
+import com.jeequan.jeepay.core.entity.PaymentRecord;
 import com.jeequan.jeepay.core.exception.BizException;
 import com.jeequan.jeepay.core.utils.SpringBeansUtil;
 import com.jeequan.jeepay.pay.channel.IPaymentService;
@@ -30,17 +31,26 @@ import com.jeequan.jeepay.pay.rqrs.AbstractRS;
 import com.jeequan.jeepay.pay.rqrs.msg.ChannelRetMsg;
 import com.jeequan.jeepay.pay.rqrs.payorder.UnifiedOrderRQ;
 import com.jeequan.jeepay.pay.rqrs.payorder.UnifiedOrderRS;
+import com.jeequan.jeepay.pay.service.FallbackPaymentService;
 import com.jeequan.jeepay.service.impl.MchPayPassageService;
 import com.jeequan.jeepay.service.impl.PayOrderService;
+import com.jeequan.jeepay.service.impl.PaymentRecordService;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -61,6 +71,9 @@ public class PayOrderDistributedTransactionService {
     @Autowired private PayOrderProcessService payOrderProcessService;
     @Autowired private IMQSender mqSender;
     @Autowired private PaymentTransactionManager paymentTransactionManager;
+    @Autowired private RedissonClient redissonClient;
+    @Autowired private PaymentRecordService paymentRecordService;
+    @Autowired private FallbackPaymentService fallbackPaymentService;
     
     // 分布式锁前缀，用于确保跨渠道支付的严格互斥
     private static final String PAYMENT_LOCK_PREFIX = "payment_lock:";
@@ -72,86 +85,111 @@ public class PayOrderDistributedTransactionService {
     private final Map<String, Double> channelSuccessRateCache = new ConcurrentHashMap<>();
     
     /**
-     * 处理支付请求的分布式事务
-     * 实现两阶段提交协议 + SAGA事务补偿
-     * 
-     * 第一阶段：准备阶段
-     * 1. 验证参数
-     * 2. 创建订单记录
-     * 3. 检查订单幂等性
-     * 
-     * 第二阶段：提交阶段
-     * 1. 调用支付渠道接口
-     * 2. 更新订单状态
-     * 
-     * SAGA补偿：
-     * 1. 支付渠道故障时，触发熔断
-     * 2. 切换到备用支付渠道
-     * 3. 确保资金一致性
+     * 处理支付交易，实现两阶段提交协议
+     * 1. 准备阶段：检查订单状态，获取支付接口，获取分布式锁
+     * 2. 提交阶段：调用支付接口，处理支付结果
+     * 3. 补偿机制：如果支付接口调用失败，使用备用渠道重试
      */
     @Transactional(rollbackFor = Exception.class)
-    public ChannelRetMsg handlePayTransaction(String wayCode, UnifiedOrderRQ bizRQ, PayOrder payOrder, 
-                                            MchAppConfigContext mchAppConfigContext) {
+    public ChannelRetMsg handlePayTransaction(String wayCode, UnifiedOrderRQ bizRQ, PayOrder payOrder,
+                                           MchAppConfigContext mchAppConfigContext) {
         
-        // 幂等性检查 - 如果订单已存在且状态不为初始化，则直接返回
-        if (payOrder != null && payOrder.getState() != PayOrder.STATE_INIT) {
-            throw new BizException("订单已存在且状态不为初始化");
-        }
-        
-        // 获取分布式锁，确保跨渠道支付的严格互斥
+        // 生成分布式锁的key，确保同一订单的支付操作互斥
         String lockKey = PAYMENT_LOCK_PREFIX + payOrder.getPayOrderId();
-        boolean lockAcquired = acquireDistributedLock(lockKey, 30); // 30秒锁定时间
-        
-        if (!lockAcquired) {
-            log.warn("无法获取支付订单锁，订单可能正在处理中: {}", payOrder.getPayOrderId());
-            throw new BizException("订单正在处理中，请稍后再试");
-        }
+        boolean lockAcquired = false;
         
         try {
-            // 第一阶段：准备阶段 - 获取最佳支付通道
-            MchPayPassage bestPassage = selectBestPaymentChannel(
-                    mchAppConfigContext.getMchNo(), mchAppConfigContext.getAppId(), wayCode);
-            
-            if (bestPassage == null) {
-                throw new BizException("商户应用不支持该支付方式或无可用支付通道");
+            // 准备阶段：获取分布式锁
+            lockAcquired = acquireDistributedLock(lockKey, 30);
+            if (!lockAcquired) {
+                log.warn("获取支付订单分布式锁失败，订单号: {}", payOrder.getPayOrderId());
+                return ChannelRetMsg.sysError("系统繁忙，请稍后再试");
             }
             
+            // 检查订单状态，确保幂等性
+            PayOrder dbPayOrder = payOrderService.getById(payOrder.getPayOrderId());
+            if (dbPayOrder != null && dbPayOrder.getState() != PayOrder.STATE_INIT) {
+                log.info("订单已处理，直接返回结果，订单号: {}, 状态: {}", payOrder.getPayOrderId(), dbPayOrder.getState());
+                
+                // 根据订单状态返回对应结果
+                if (dbPayOrder.getState() == PayOrder.STATE_SUCCESS) {
+                    return ChannelRetMsg.confirmSuccess(null);
+                } else if (dbPayOrder.getState() == PayOrder.STATE_FAIL) {
+                    return ChannelRetMsg.confirmFail(null);
+                } else {
+                    return ChannelRetMsg.waiting();
+                }
+            }
+            
+            // 获取支付通道
+            MchPayPassage mchPayPassage = mchPayPassageService.findMchPayPassage(
+                    mchAppConfigContext.getMchNo(), mchAppConfigContext.getAppId(), wayCode);
+            
+            if (mchPayPassage == null) {
+                log.error("商户未配置支付通道，商户号: {}, 应用ID: {}, 支付方式: {}", 
+                        mchAppConfigContext.getMchNo(), mchAppConfigContext.getAppId(), wayCode);
+                return ChannelRetMsg.sysError("商户未配置支付通道");
+            }
+            
+            // 检查支付通道是否可用（未熔断）
+            if (!paymentTransactionManager.isChannelAvailable(mchPayPassage.getIfCode())) {
+                log.warn("支付通道已熔断，切换到备用通道，通道代码: {}", mchPayPassage.getIfCode());
+                return handleChannelFailure(wayCode, bizRQ, payOrder, mchAppConfigContext);
+            }
+            
+            // 获取支付接口实现
+            IPaymentService paymentService = getPaymentService(mchAppConfigContext, mchPayPassage);
+            
+            // 设置订单的支付通道
+            payOrder.setIfCode(mchPayPassage.getIfCode());
+            
             // 记录支付渠道调用开始
-            String ifCode = bestPassage.getIfCode();
-            paymentTransactionManager.recordCallStart(ifCode);
+            paymentTransactionManager.recordCallStart(mchPayPassage.getIfCode());
             long startTime = System.currentTimeMillis();
             
             try {
-                // 获取支付接口服务
-                IPaymentService paymentService = getPaymentService(mchAppConfigContext, bestPassage);
-                
-                // 第二阶段：提交阶段 - 调用支付渠道
-                ChannelRetMsg retMsg = processPayment(wayCode, bizRQ, payOrder, mchAppConfigContext, bestPassage, paymentService);
-                
-                // 记录支付渠道调用成功
-                paymentTransactionManager.recordCallSuccess(ifCode, System.currentTimeMillis() - startTime);
+                // 提交阶段：调用支付接口处理支付
+                ChannelRetMsg retMsg = processPayment(wayCode, bizRQ, payOrder, 
+                        mchAppConfigContext, mchPayPassage, paymentService);
                 
                 // 更新通道权重和成功率
-                updateChannelMetrics(ifCode, true);
+                updateChannelMetrics(mchPayPassage.getIfCode(), true);
+                
+                // 记录支付记录，确保资金对账一致性
+                if (retMsg.getChannelState() == ChannelRetMsg.ChannelState.CONFIRM_SUCCESS) {
+                    PaymentRecord paymentRecord = new PaymentRecord();
+                    paymentRecord.setOrderNo(payOrder.getPayOrderId());
+                    paymentRecord.setAmount(new BigDecimal(payOrder.getAmount()));
+                    paymentRecord.setChannel(mchPayPassage.getIfCode());
+                    paymentRecord.setCreateTime(new Date());
+                    paymentRecord.setUpdateTime(new Date());
+                    
+                    paymentRecordService.save(paymentRecord);
+                }
                 
                 return retMsg;
                 
-            } catch (ChannelException e) {
-                // 记录支付渠道调用失败
-                paymentTransactionManager.recordCallFailure(ifCode, System.currentTimeMillis() - startTime);
+            } catch (Exception e) {
+                // 记录渠道调用失败
+                paymentTransactionManager.recordCallFailure(mchPayPassage.getIfCode(), 
+                        System.currentTimeMillis() - startTime);
                 
                 // 更新通道权重和成功率
-                updateChannelMetrics(ifCode, false);
+                updateChannelMetrics(mchPayPassage.getIfCode(), false);
                 
-                // 支付渠道异常，触发熔断和补偿机制
-                log.error("支付渠道异常，触发熔断和补偿: {}", e.getMessage());
+                // 补偿机制：使用备用渠道重试
+                log.error("支付渠道处理失败，尝试使用备用渠道，原因: {}", e.getMessage(), e);
                 return handleChannelFailure(wayCode, bizRQ, payOrder, mchAppConfigContext);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
             }
+            
+        } catch (Exception e) {
+            log.error("处理支付交易异常: {}", e.getMessage(), e);
+            return ChannelRetMsg.sysError("支付处理失败，请稍后再试");
         } finally {
             // 释放分布式锁
-            releaseDistributedLock(lockKey);
+            if (lockAcquired) {
+                releaseDistributedLock(lockKey);
+            }
         }
     }
 
@@ -174,30 +212,28 @@ public class PayOrderDistributedTransactionService {
             AbstractRS abstractRS = paymentService.pay(bizRQ, payOrder, mchAppConfigContext);
             
             // 更新订单状态为处理中
-            payOrderService.updateInit2Ing(payOrder.getPayOrderId(), payOrder);
-            
-            // 设置MQ延迟消息，用于支付结果查询和补单
-            mqSender.send(PayOrderReissueMQ.build(payOrder.getPayOrderId(), 1), 60); // 60秒后查询一次支付结果
+            updateOrderState(payOrder, PayOrder.STATE_ING);
             
             // 从AbstractRS中提取ChannelRetMsg
-            ChannelRetMsg channelRetMsg = null;
+            ChannelRetMsg channelRetMsg;
             if (abstractRS instanceof UnifiedOrderRS) {
                 channelRetMsg = ((UnifiedOrderRS) abstractRS).getChannelRetMsg();
-            }
-            
-            // 如果无法从AbstractRS中获取ChannelRetMsg，则创建一个默认的等待状态
-            if (channelRetMsg == null) {
+            } else {
+                // 默认等待支付结果
                 channelRetMsg = ChannelRetMsg.waiting();
             }
             
+            // 记录渠道调用成功
+            paymentTransactionManager.recordCallSuccess(mchPayPassage.getIfCode(), System.currentTimeMillis());
+            
             return channelRetMsg;
             
-        } catch (Exception e) {
-            // 记录异常日志
-            log.error("调用支付渠道接口异常: {}", e.getMessage(), e);
+        } catch (ChannelException e) {
+            // 记录渠道调用失败
+            paymentTransactionManager.recordCallFailure(mchPayPassage.getIfCode(), System.currentTimeMillis());
             
-            // 抛出渠道异常，触发熔断和补偿机制
-            throw ChannelException.sysError("调用支付渠道接口异常: " + e.getMessage());
+            // 抛出异常，由调用者处理
+            throw e;
         }
     }
 
@@ -211,55 +247,11 @@ public class PayOrderDistributedTransactionService {
                                             MchAppConfigContext mchAppConfigContext) {
         
         try {
-            // 查找备用支付通道，排除已熔断的通道
-            List<MchPayPassage> backupPassages = findAvailableBackupChannels(
-                    mchAppConfigContext.getMchNo(), mchAppConfigContext.getAppId(), wayCode);
+            // 记录原始渠道
+            String originalIfCode = payOrder.getIfCode();
             
-            // 如果没有备用通道，返回错误
-            if (backupPassages == null || backupPassages.isEmpty()) {
-                log.error("没有可用的备用支付通道");
-                return ChannelRetMsg.sysError("支付渠道暂时不可用，请稍后再试");
-            }
-            
-            // 使用第一个备用通道
-            MchPayPassage backupPassage = backupPassages.get(0);
-            String backupIfCode = backupPassage.getIfCode();
-            
-            // 记录支付渠道调用开始
-            paymentTransactionManager.recordCallStart(backupIfCode);
-            long startTime = System.currentTimeMillis();
-            
-            try {
-                // 获取备用支付接口服务
-                IPaymentService backupPaymentService = getPaymentService(mchAppConfigContext, backupPassage);
-                
-                // 创建SAGA补偿记录，用于后续资金一致性检查
-                paymentTransactionManager.createCompensationRecord(
-                        payOrder, payOrder.getIfCode(), backupIfCode);
-                
-                // 使用备用通道处理支付
-                log.info("使用备用支付通道: {}", backupPassage.getId());
-                ChannelRetMsg retMsg = processPayment(wayCode, bizRQ, payOrder, 
-                        mchAppConfigContext, backupPassage, backupPaymentService);
-                
-                // 记录备用渠道调用成功
-                paymentTransactionManager.recordCallSuccess(backupIfCode, System.currentTimeMillis() - startTime);
-                
-                // 更新通道权重和成功率
-                updateChannelMetrics(backupIfCode, true);
-                
-                return retMsg;
-                
-            } catch (Exception e) {
-                // 记录备用渠道调用失败
-                paymentTransactionManager.recordCallFailure(backupIfCode, System.currentTimeMillis() - startTime);
-                
-                // 更新通道权重和成功率
-                updateChannelMetrics(backupIfCode, false);
-                
-                log.error("备用支付通道处理失败: {}", e.getMessage(), e);
-                return ChannelRetMsg.sysError("支付处理失败，请稍后再试");
-            }
+            // 使用FallbackPaymentService处理备用支付
+            return fallbackPaymentService.fallbackPayment(wayCode, bizRQ, payOrder, mchAppConfigContext);
             
         } catch (Exception e) {
             log.error("备用支付通道处理失败: {}", e.getMessage(), e);
@@ -268,20 +260,21 @@ public class PayOrderDistributedTransactionService {
     }
     
     /**
-     * 查找可用的备用支付通道，排除已熔断的通道
+     * 查找可用的备用支付通道，排除指定的主通道
+     * @param mchNo 商户号
+     * @param appId 应用ID
+     * @param wayCode 支付方式
+     * @param primaryIfCode 主通道代码（需要排除）
+     * @return 可用的备用通道列表
      */
-    private List<MchPayPassage> findAvailableBackupChannels(String mchNo, String appId, String wayCode) {
+    private List<MchPayPassage> findAvailableBackupChannels(String mchNo, String appId, String wayCode, String primaryIfCode) {
         // 获取所有支持该支付方式的通道
         List<MchPayPassage> allPassages = mchPayPassageService.findAvailablePayPassageByWayCode(mchNo, appId, wayCode);
         
-        if (allPassages == null || allPassages.isEmpty()) {
-            return Collections.emptyList();
-        }
-        
-        // 过滤掉已熔断的通道
+        // 过滤掉主通道和已熔断的通道
         return allPassages.stream()
-                .filter(passage -> paymentTransactionManager.isChannelAvailable(passage.getIfCode()))
-                .sorted(this::compareChannelPriority) // 按优先级排序
+                .filter(passage -> !passage.getIfCode().equals(primaryIfCode)) // 排除主通道
+                .filter(passage -> paymentTransactionManager.isChannelAvailable(passage.getIfCode())) // 只保留可用通道
                 .collect(Collectors.toList());
     }
     
@@ -312,7 +305,7 @@ public class PayOrderDistributedTransactionService {
      */
     private MchPayPassage selectBestPaymentChannel(String mchNo, String appId, String wayCode) {
         // 获取所有可用的支付通道
-        List<MchPayPassage> availablePassages = findAvailableBackupChannels(mchNo, appId, wayCode);
+        List<MchPayPassage> availablePassages = findAvailableBackupChannels(mchNo, appId, wayCode, null);
         
         if (availablePassages.isEmpty()) {
             return null;
@@ -370,12 +363,10 @@ public class PayOrderDistributedTransactionService {
      * 确保跨渠道支付的严格互斥
      */
     private boolean acquireDistributedLock(String lockKey, int expireSeconds) {
-        // 实际项目中应该使用Redis或Zookeeper实现分布式锁
-        // 这里简化处理，使用本地锁模拟
+        // 使用Redisson实现分布式锁
         try {
-            // 模拟分布式锁获取
-            log.info("获取支付订单分布式锁: {}", lockKey);
-            return true;
+            RLock lock = redissonClient.getLock(lockKey);
+            return lock.tryLock(1, expireSeconds, TimeUnit.SECONDS);
         } catch (Exception e) {
             log.error("获取分布式锁异常: {}", e.getMessage(), e);
             return false;
@@ -387,10 +378,41 @@ public class PayOrderDistributedTransactionService {
      */
     private void releaseDistributedLock(String lockKey) {
         try {
-            // 模拟分布式锁释放
-            log.info("释放支付订单分布式锁: {}", lockKey);
+            RLock lock = redissonClient.getLock(lockKey);
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+                log.debug("释放支付订单分布式锁: {}", lockKey);
+            }
         } catch (Exception e) {
             log.error("释放分布式锁异常: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * 更新订单状态并设置MQ延迟消息
+     * @param payOrder 支付订单
+     * @param newState 新状态
+     */
+    private void updateOrderState(PayOrder payOrder, byte newState) {
+        if (payOrder.getState() == newState) {
+            return; // 状态未变化，无需更新
+        }
+        
+        // 更新订单状态
+        if (newState == PayOrder.STATE_ING) {
+            payOrderService.updateInit2Ing(payOrder.getPayOrderId(), payOrder);
+            
+            // 设置MQ延迟消息，用于支付结果查询和补单
+            mqSender.send(PayOrderReissueMQ.build(payOrder.getPayOrderId(), 1), 60); // 60秒后查询一次支付结果
+            
+        } else if (newState == PayOrder.STATE_SUCCESS) {
+            payOrderService.updateIng2Success(payOrder.getPayOrderId(), null, null);
+            
+        } else if (newState == PayOrder.STATE_FAIL) {
+            payOrderService.updateIng2Fail(payOrder.getPayOrderId(), null, null, null, null);
+        }
+        
+        // 更新内存中的订单状态
+        payOrder.setState(newState);
     }
 } 

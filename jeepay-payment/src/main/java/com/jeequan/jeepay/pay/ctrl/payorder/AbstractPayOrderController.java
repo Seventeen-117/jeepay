@@ -270,7 +270,7 @@ public abstract class AbstractPayOrderController extends ApiController {
 
         //订单过期时间 单位： 秒
         if(rq.getExpiredTime() != null){
-            payOrder.setExpiredTime(DateUtil.offsetSecond(nowDate, rq.getExpiredTime()));
+            payOrder.setExpiredTime(rq.getExpiredTime());
         }else{
             payOrder.setExpiredTime(DateUtil.offsetHour(nowDate, 2)); //订单过期时间 默认两个小时
         }

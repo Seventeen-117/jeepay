@@ -21,8 +21,11 @@ import com.jeequan.jeepay.core.constants.CS;
 import com.jeequan.jeepay.core.entity.PayOrder;
 import com.jeequan.jeepay.core.entity.PayOrderCompensation;
 import com.jeequan.jeepay.core.exception.BizException;
+import com.jeequan.jeepay.pay.config.Resilience4jConfig;
 import com.jeequan.jeepay.pay.model.PayChannelMetrics;
 import com.jeequan.jeepay.service.impl.PayOrderService;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -31,11 +34,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Date;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.HashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 支付交易管理器
- * 负责支付渠道的熔断、监控和补偿机制
+ * 负责管理支付渠道的熔断、监控和补偿记录
  *
  * @author jeepay
  * @site https://www.jeequan.com
@@ -47,146 +50,114 @@ public class PaymentTransactionManager {
 
     @Autowired private PayOrderService payOrderService;
     @Autowired private IMQSender mqSender;
+    @Autowired private CircuitBreakerRegistry circuitBreakerRegistry;
     
-    // 支付渠道度量指标 - 用于熔断机制
+    // 支付渠道度量指标缓存
     private final Map<String, PayChannelMetrics> channelMetricsMap = new ConcurrentHashMap<>();
-    
-    // 熔断阈值配置
-    private static final int ERROR_THRESHOLD = 5; // 错误阈值
-    private static final int TIMEOUT_THRESHOLD = 3000; // 超时阈值(毫秒)
-    private static final long CIRCUIT_BREAKER_RESET_TIMEOUT = 60000; // 熔断器重置时间(毫秒)
-    
-    // 渠道可用性状态缓存 - 用于快速判断渠道是否可用
-    private final Map<String, Boolean> channelAvailabilityCache = new ConcurrentHashMap<>();
     
     /**
      * 记录支付渠道调用开始
+     * @param ifCode 接口代码
      */
     public void recordCallStart(String ifCode) {
         PayChannelMetrics metrics = getOrCreateMetrics(ifCode);
-        metrics.incrementCallCount();
-        metrics.setLastCallTime(System.currentTimeMillis());
+        metrics.getCallCount().incrementAndGet();
     }
     
     /**
      * 记录支付渠道调用成功
+     * @param ifCode 接口代码
+     * @param responseTime 响应时间（毫秒）
      */
-    public void recordCallSuccess(String ifCode, long duration) {
+    public void recordCallSuccess(String ifCode, long responseTime) {
         PayChannelMetrics metrics = getOrCreateMetrics(ifCode);
-        metrics.incrementSuccessCount();
-        metrics.updateResponseTime(duration);
+        metrics.getSuccessCount().incrementAndGet();
+        metrics.getTotalResponseTime().addAndGet(responseTime);
         
-        // 如果渠道之前被标记为不可用，现在恢复可用
-        if (!Boolean.TRUE.equals(channelAvailabilityCache.get(ifCode))) {
-            channelAvailabilityCache.put(ifCode, true);
+        // 更新平均响应时间
+        long callCount = metrics.getCallCount().get();
+        if (callCount > 0) {
+            metrics.setAvgResponseTime(metrics.getTotalResponseTime().get() / callCount);
         }
+        
+        // 记录最后一次成功时间
+        metrics.setLastSuccessTime(System.currentTimeMillis());
     }
     
     /**
      * 记录支付渠道调用失败
+     * @param ifCode 接口代码
+     * @param responseTime 响应时间（毫秒）
      */
-    public void recordCallFailure(String ifCode, long duration) {
+    public void recordCallFailure(String ifCode, long responseTime) {
         PayChannelMetrics metrics = getOrCreateMetrics(ifCode);
-        metrics.incrementErrorCount();
-        metrics.updateResponseTime(duration);
+        metrics.getFailureCount().incrementAndGet();
+        metrics.getTotalResponseTime().addAndGet(responseTime);
         
-        // 检查是否需要触发熔断
-        checkCircuitBreaker(ifCode, metrics);
+        // 更新平均响应时间
+        long callCount = metrics.getCallCount().get();
+        if (callCount > 0) {
+            metrics.setAvgResponseTime(metrics.getTotalResponseTime().get() / callCount);
+        }
+        
+        // 记录最后一次失败时间
+        metrics.setLastFailureTime(System.currentTimeMillis());
+        
+        // 获取熔断器并记录失败
+        CircuitBreaker circuitBreaker = Resilience4jConfig.getPaymentChannelCircuitBreaker(
+                circuitBreakerRegistry, ifCode);
+        
+        // 记录失败事件
+        circuitBreaker.onError(responseTime, java.util.concurrent.TimeUnit.MILLISECONDS, new RuntimeException("支付渠道调用失败"));
     }
     
     /**
-     * 检查支付渠道是否可用
-     * 实现了熔断器的三种状态：关闭、打开、半开
+     * 检查支付渠道是否可用（未熔断）
+     * @param ifCode 接口代码
+     * @return 是否可用
      */
     public boolean isChannelAvailable(String ifCode) {
-        // 首先检查缓存，提高性能
-        Boolean cachedAvailability = channelAvailabilityCache.get(ifCode);
-        if (cachedAvailability != null && !cachedAvailability) {
-            // 如果缓存中标记为不可用，再检查熔断器状态
-            PayChannelMetrics metrics = channelMetricsMap.get(ifCode);
-            if (metrics == null) {
-                // 如果没有度量数据，认为渠道可用
-                channelAvailabilityCache.put(ifCode, true);
-                return true;
-            }
+        try {
+            CircuitBreaker circuitBreaker = Resilience4jConfig.getPaymentChannelCircuitBreaker(
+                    circuitBreakerRegistry, ifCode);
             
-            // 检查熔断器状态
-            return checkCircuitBreakerState(ifCode, metrics);
-        }
-        
-        // 默认可用
-        return true;
-    }
-    
-    /**
-     * 检查熔断器状态并决定是否允许请求通过
-     */
-    private boolean checkCircuitBreakerState(String ifCode, PayChannelMetrics metrics) {
-        long now = System.currentTimeMillis();
-        
-        // 如果熔断器处于打开状态
-        if (metrics.isCircuitBreakerOpen()) {
-            // 检查是否达到重置时间，如果是则切换到半开状态
-            if (now - metrics.getCircuitBreakerOpenTime() > CIRCUIT_BREAKER_RESET_TIMEOUT) {
-                log.info("支付渠道[{}]熔断器从打开状态切换到半开状态", ifCode);
-                metrics.halfOpenCircuitBreaker();
-                // 继续检查半开状态
-                return checkHalfOpenState(ifCode, metrics);
-            }
-            // 熔断器打开状态，不允许请求通过
-            return false;
-        } 
-        // 如果熔断器处于半开状态
-        else if (metrics.isCircuitBreakerHalfOpen()) {
-            return checkHalfOpenState(ifCode, metrics);
-        }
-        
-        // 熔断器关闭状态，允许请求通过
-        return true;
-    }
-    
-    /**
-     * 检查半开状态下是否允许请求通过
-     */
-    private boolean checkHalfOpenState(String ifCode, PayChannelMetrics metrics) {
-        // 在半开状态下，只允许有限数量的请求通过
-        boolean allowed = metrics.allowRequestInHalfOpenState();
-        if (allowed) {
-            log.info("支付渠道[{}]处于半开状态，允许测试请求通过", ifCode);
-        }
-        return allowed;
-    }
-    
-    /**
-     * 检查熔断器状态，决定是否触发熔断
-     */
-    private void checkCircuitBreaker(String ifCode, PayChannelMetrics metrics) {
-        // 错误率超过阈值或平均响应时间超过阈值，触发熔断
-        if (metrics.getErrorCount().get() >= ERROR_THRESHOLD || 
-            metrics.getAverageResponseTime() > TIMEOUT_THRESHOLD) {
-            
-            log.warn("支付渠道[{}]触发熔断，错误次数:{}, 平均响应时间:{}ms", 
-                    ifCode, metrics.getErrorCount().get(), metrics.getAverageResponseTime());
-            
-            metrics.openCircuitBreaker();
-            channelAvailabilityCache.put(ifCode, false);
+            return circuitBreaker.getState() != CircuitBreaker.State.OPEN;
+        } catch (Exception e) {
+            log.error("检查支付渠道状态时发生异常，渠道: {}", ifCode, e);
+            return true; // 默认可用
         }
     }
     
     /**
-     * 获取或创建渠道度量指标
-     */
-    private PayChannelMetrics getOrCreateMetrics(String ifCode) {
-        return channelMetricsMap.computeIfAbsent(ifCode, k -> new PayChannelMetrics());
-    }
-    
-    /**
-     * 获取渠道度量指标
-     * 公开方法，供其他服务使用
+     * 获取支付渠道度量指标
+     * @param ifCode 接口代码
+     * @return 度量指标
      */
     public PayChannelMetrics getChannelMetrics(String ifCode) {
-        return getOrCreateMetrics(ifCode);
+        return channelMetricsMap.get(ifCode);
     }
+    
+    /**
+     * 获取或创建支付渠道度量指标
+     * @param ifCode 接口代码
+     * @return 度量指标
+     */
+    private PayChannelMetrics getOrCreateMetrics(String ifCode) {
+        return channelMetricsMap.computeIfAbsent(ifCode, k -> {
+            PayChannelMetrics metrics = new PayChannelMetrics();
+            metrics.setIfCode(ifCode);
+            metrics.setCallCount(new AtomicLong(0));
+            metrics.setSuccessCount(new AtomicLong(0));
+            metrics.setFailureCount(new AtomicLong(0));
+            metrics.setTotalResponseTime(new AtomicLong(0));
+            metrics.setAvgResponseTime(0);
+            metrics.setLastSuccessTime(0);
+            metrics.setLastFailureTime(0);
+            return metrics;
+        });
+    }
+    
+
     
     /**
      * 创建支付补偿记录
@@ -229,7 +200,6 @@ public class PaymentTransactionManager {
         PayChannelMetrics metrics = channelMetricsMap.get(ifCode);
         if (metrics != null) {
             metrics.resetCircuitBreaker();
-            channelAvailabilityCache.put(ifCode, true);
             log.info("手动重置支付渠道[{}]的熔断器", ifCode);
         }
     }
@@ -239,29 +209,37 @@ public class PaymentTransactionManager {
      * 用于监控和管理界面展示
      */
     public Map<String, Object> getAllChannelStatus() {
-        Map<String, Object> result = new HashMap<>();
-        
-        channelMetricsMap.forEach((ifCode, metrics) -> {
-            Map<String, Object> channelStatus = new HashMap<>();
-            channelStatus.put("callCount", metrics.getCallCount().get());
-            channelStatus.put("successCount", metrics.getSuccessCount().get());
-            channelStatus.put("errorCount", metrics.getErrorCount().get());
-            channelStatus.put("averageResponseTime", metrics.getAverageResponseTime());
-            
-            if (metrics.isCircuitBreakerOpen()) {
-                channelStatus.put("status", "OPEN");
-                long remainingTime = CIRCUIT_BREAKER_RESET_TIMEOUT - 
-                        (System.currentTimeMillis() - metrics.getCircuitBreakerOpenTime());
-                channelStatus.put("resetIn", Math.max(0, remainingTime / 1000) + "秒");
-            } else if (metrics.isCircuitBreakerHalfOpen()) {
-                channelStatus.put("status", "HALF_OPEN");
-            } else {
-                channelStatus.put("status", "CLOSED");
-            }
-            
-            result.put(ifCode, channelStatus);
-        });
-        
-        return result;
+        // Implementation needed
+        throw new UnsupportedOperationException("Method getAllChannelStatus() not implemented");
+    }
+    
+    /**
+     * 获取推荐的备用支付渠道
+     * 根据渠道权重和成功率推荐最优的备用渠道
+     * @param ifCode 当前渠道代码（需要排除）
+     * @return 推荐的备用渠道代码
+     */
+    public String getRecommendedBackupChannel(String ifCode) {
+        // 找出权重最高的渠道（排除当前渠道）
+        return channelMetricsMap.entrySet().stream()
+                .filter(entry -> !entry.getKey().equals(ifCode)) // 排除当前渠道
+                .filter(entry -> isChannelAvailable(entry.getKey())) // 只考虑可用渠道
+                .max((e1, e2) -> {
+                    // 计算综合得分 (权重 * 成功率)
+                    PayChannelMetrics m1 = e1.getValue();
+                    PayChannelMetrics m2 = e2.getValue();
+                    
+                    // 计算成功率
+                    double successRate1 = m1.getSuccessCount().doubleValue() / Math.max(1, m1.getCallCount().get());
+                    double successRate2 = m2.getSuccessCount().doubleValue() / Math.max(1, m2.getCallCount().get());
+                    
+                    // 计算综合得分
+                    double score1 = successRate1 * (100 - m1.getAvgResponseTime() / 1000.0);
+                    double score2 = successRate2 * (100 - m2.getAvgResponseTime() / 1000.0);
+                    
+                    return Double.compare(score1, score2);
+                })
+                .map(Map.Entry::getKey)
+                .orElse(null);
     }
 } 
