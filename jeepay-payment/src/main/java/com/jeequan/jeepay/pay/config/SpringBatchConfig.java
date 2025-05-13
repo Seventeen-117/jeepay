@@ -28,15 +28,20 @@ import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.core.launch.JobLauncher;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
+import org.springframework.batch.core.launch.support.SimpleJobLauncher;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.List;
 
@@ -64,6 +69,37 @@ public class SpringBatchConfig {
     @Autowired private PlatformTransactionManager transactionManager;
 
     /**
+     * 配置JobLauncher使用的TaskExecutor
+     * 使用ThreadPoolTaskExecutor代替ScheduledThreadPoolExecutor来解决类型转换问题
+     * @return 线程池任务执行器
+     */
+    @Bean(name = "batchJobTaskExecutor") 
+    public TaskExecutor batchJobTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(5);
+        executor.setMaxPoolSize(10);
+        executor.setQueueCapacity(25);
+        executor.setThreadNamePrefix("batch-job-");
+        executor.initialize();
+        return executor;
+    }
+
+    /**
+     * 配置自定义JobLauncher
+     * 使用Spring提供的TaskExecutor来解决类型转换问题
+     * @return JobLauncher实例
+     */
+    @Bean
+    @Primary
+    public JobLauncher jobLauncher() throws Exception {
+        SimpleJobLauncher jobLauncher = new SimpleJobLauncher();
+        jobLauncher.setJobRepository(jobRepository);
+        jobLauncher.setTaskExecutor(batchJobTaskExecutor());
+        jobLauncher.afterPropertiesSet();
+        return jobLauncher;
+    }
+
+    /**
      * 配置支付对账批处理任务
      * @return 批处理任务
      */
@@ -87,6 +123,7 @@ public class SpringBatchConfig {
                 .reader(payOrderItemReader)
                 .processor(discrepancyItemProcessor)
                 .writer(discrepancyItemWriter)
+                .taskExecutor(batchJobTaskExecutor())
                 .build();
     }
 

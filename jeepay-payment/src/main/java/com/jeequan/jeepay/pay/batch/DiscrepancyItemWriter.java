@@ -86,7 +86,7 @@ public class DiscrepancyItemWriter implements ItemWriter<Discrepancy> {
         reconciliation.setDiscrepancyAmount(discrepancy.calculateDiscrepancy());
         reconciliation.setIsFixed(0);
         reconciliation.setChannel(discrepancy.getChannel());
-        reconciliation.setBackupChannel(discrepancy.getBackupChannel());
+        reconciliation.setBackupIfCode(discrepancy.getBackupIfCode());
         reconciliation.setCreateTime(new Date());
         reconciliation.setUpdateTime(new Date());
         
@@ -107,7 +107,7 @@ public class DiscrepancyItemWriter implements ItemWriter<Discrepancy> {
         reconciliation.setDiscrepancyType(discrepancy.getType());
         reconciliation.setDiscrepancyAmount(discrepancy.calculateDiscrepancy());
         reconciliation.setChannel(discrepancy.getChannel());
-        reconciliation.setBackupChannel(discrepancy.getBackupChannel());
+        reconciliation.setBackupIfCode(discrepancy.getBackupIfCode());
         reconciliation.setUpdateTime(new Date());
         
         paymentReconciliationService.updateById(reconciliation);

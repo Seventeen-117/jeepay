@@ -29,7 +29,7 @@ import java.util.Date;
 
 /**
  * <p>
- * 支付记录表
+ * 支付补偿记录表
  * </p>
  *
  * @author jiangyangpay
@@ -38,12 +38,12 @@ import java.util.Date;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @Accessors(chain = true)
-@TableName("payment_records")
-public class PaymentRecord implements Serializable {
+@TableName("payment_compensation_records")
+public class PaymentCompensationRecord implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    public static final LambdaQueryWrapper<PaymentRecord> gw() {
+    public static final LambdaQueryWrapper<PaymentCompensationRecord> gw() {
         return new LambdaQueryWrapper<>();
     }
 
@@ -59,19 +59,19 @@ public class PaymentRecord implements Serializable {
     private String orderNo;
 
     /**
-     * 支付金额
+     * 主支付渠道
      */
-    private BigDecimal amount;
-
-    /**
-     * 支付渠道
-     */
-    private String channel;
+    private String primaryChannel;
 
     /**
      * 备用支付渠道
      */
     private String backupIfCode;
+
+    /**
+     * 支付金额
+     */
+    private BigDecimal amount;
 
     /**
      * 创建时间

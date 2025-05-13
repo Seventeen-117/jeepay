@@ -18,8 +18,14 @@ package com.jeequan.jeepay.service.impl;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jeequan.jeepay.core.entity.PaymentReconciliation;
 import com.jeequan.jeepay.service.mapper.PaymentReconciliationMapper;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.List;
 
 /**
@@ -31,30 +37,73 @@ import java.util.List;
  * @since 2023-08-12
  */
 @Service("paymentReconciliationService")
+@Slf4j
 public class PaymentReconciliationService extends ServiceImpl<PaymentReconciliationMapper, PaymentReconciliation> {
 
+    @Autowired
+    private DataSource dataSource;
+    
+    @Value("${spring.datasource.dynamic.primary:mysql}")
+    private String primaryDataSource;
+
     /**
-     * 创建视图
+     * 判断当前使用的数据库类型
+     * @return true如果是PostgreSQL，false如果是MySQL或其他数据库
      */
-    public void createMaterializedView() {
-        try {
-            // 先尝试删除可能存在的表，以便创建视图
-            baseMapper.dropTableIfExists();
-            // 也尝试删除可能存在的视图
-            baseMapper.dropViewIfExists();
-        } catch (Exception e) {
-            // 忽略删除时的错误，可能表或视图不存在
+    private boolean isPostgreSQLDatabase() {
+        // 如果明确配置了使用PostgreSQL作为主数据源
+        if ("postgres".equalsIgnoreCase(primaryDataSource)) {
+            return true;
         }
         
-        // 创建视图
-        baseMapper.createMaterializedView();
+        // 通过检查数据库连接信息来判断
+        try (Connection connection = dataSource.getConnection()) {
+            String dbProductName = connection.getMetaData().getDatabaseProductName().toLowerCase();
+            return dbProductName.contains("postgresql");
+        } catch (SQLException e) {
+            log.error("获取数据库类型出错", e);
+            // 默认返回false，使用MySQL模式
+            return false;
+        }
     }
 
     /**
-     * 刷新视图
+     * 创建视图或物化视图（根据数据库类型自动选择）
+     */
+    public void createMaterializedView() {
+        try {
+            // 使用一个通用方法清理所有可能存在的同名对象，无论是什么类型
+            log.info("清理可能存在的旧对象（表、视图、物化视图）...");
+            baseMapper.dropAllReconciliationObjects();
+            
+            // 根据数据库类型创建相应的视图
+            if (isPostgreSQLDatabase()) {
+                log.info("使用PostgreSQL物化视图来实现实时资金对账");
+                baseMapper.createPostgreSQLMaterializedView();
+                baseMapper.createMaterializedViewIndex();
+            } else {
+                log.info("使用MySQL视图来实现对账");
+                baseMapper.createMySQLView();
+            }
+            
+            log.info("对账视图创建完成");
+        } catch (Exception e) {
+            log.error("创建视图失败", e);
+            throw e;
+        }
+    }
+
+    /**
+     * 刷新视图（对于MySQL视图不需要刷新，对于PostgreSQL需要刷新物化视图）
      */
     public void refreshMaterializedView() {
-        baseMapper.refreshMaterializedView();
+        if (isPostgreSQLDatabase()) {
+            // PostgreSQL需要刷新物化视图
+            baseMapper.refreshPostgreSQLMaterializedView();
+        } else {
+            // MySQL视图不需要刷新，执行空操作
+            baseMapper.refreshMySQLView();
+        }
     }
 
     /**

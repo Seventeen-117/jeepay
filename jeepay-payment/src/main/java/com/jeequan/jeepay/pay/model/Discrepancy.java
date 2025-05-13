@@ -68,7 +68,7 @@ public class Discrepancy {
     /**
      * 备用支付渠道（如果使用了备用渠道）
      */
-    private String backupChannel;
+    private String backupIfCode;
 
     /**
      * 检查是否存在差异

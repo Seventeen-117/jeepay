@@ -244,6 +244,13 @@
             <artifactId>jakarta.activation-api</artifactId>
             <version>1.2.2</version>
         </dependency>
+        
+        <!-- PostgreSQL JDBC 驱动 -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.7.2</version>
+        </dependency>
     </dependencies>
 
   </dependencyManagement>

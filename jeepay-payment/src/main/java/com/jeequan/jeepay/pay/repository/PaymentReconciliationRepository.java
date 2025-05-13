@@ -17,6 +17,7 @@ package com.jeequan.jeepay.pay.repository;
 
 import com.jeequan.jeepay.pay.model.PaymentReconciliation;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
@@ -49,19 +50,42 @@ public interface PaymentReconciliationRepository extends JpaRepository<PaymentRe
             (po.amount - COALESCE(pr.amount, 0)) as discrepancy_amount,
             false as is_fixed,
             po.if_code as channel,
-            po.backup_if_code as backup_channel
-        FROM pay_order po 
+            po.backup_if_code as backup_if_code,
+            NOW() as create_time,
+            NOW() as update_time
+        FROM t_pay_order po 
         LEFT JOIN payment_records pr ON po.pay_order_id = pr.order_no
         WHERE po.state = 2 -- 已支付状态
         WITH DATA
     """)
     void createMaterializedView();
+    
+    /**
+     * 删除物化视图
+     */
+    @Query(nativeQuery = true, value = "DROP MATERIALIZED VIEW IF EXISTS payment_reconciliation")
+    void dropMaterializedView();
+    
+    /**
+     * 创建物化视图索引
+     */
+    @Query(nativeQuery = true, value = "CREATE INDEX IF NOT EXISTS idx_payment_reconciliation_order_no ON payment_reconciliation(order_no)")
+    void createMaterializedViewIndex();
 
     /**
-     * 刷新物化视图
+     * 刷新物化视图（并发方式）
+     * CONCURRENTLY关键字允许在刷新的同时仍然可以查询物化视图，
+     * 但需要视图上有唯一索引才能使用此功能
      */
     @Query(nativeQuery = true, value = "REFRESH MATERIALIZED VIEW CONCURRENTLY payment_reconciliation")
     void refreshMaterializedView();
+    
+    /**
+     * 刷新物化视图（非并发方式）
+     * 如果没有创建唯一索引可以使用此方法，但会锁定视图
+     */
+    @Query(nativeQuery = true, value = "REFRESH MATERIALIZED VIEW payment_reconciliation")
+    void refreshMaterializedViewNonConcurrent();
 
     /**
      * 查找未处理的差异记录
@@ -83,6 +107,7 @@ public interface PaymentReconciliationRepository extends JpaRepository<PaymentRe
      * @param orderNo 订单号
      * @return 更新的记录数
      */
+    @Modifying
     @Query(nativeQuery = true, value = "UPDATE payment_reconciliation SET is_fixed = true WHERE order_no = ?1")
     int markAsFixed(String orderNo);
 } 

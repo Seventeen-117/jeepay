@@ -89,7 +89,7 @@ public class PaymentReconciliation implements Serializable {
     /**
      * 备用支付渠道（如果使用了备用渠道）
      */
-    private String backupChannel;
+    private String backupIfCode;
     
     /**
      * 创建时间

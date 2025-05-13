@@ -62,12 +62,13 @@ public class ReconciliationService {
     }
 
     /**
-     * 定时刷新对账数据（MySQL视图会自动更新，此方法仅作为兼容保留）
+     * 定时刷新对账数据
+     * MySQL视图会自动更新，不需要刷新操作
+     * PostgreSQL物化视图需要定期刷新以保持数据实时性
      */
-    @Scheduled(fixedDelay = 5000)
+    @Scheduled(fixedDelay = 5000) // 每5秒刷新一次，保持实时性
     public void refreshReconciliationView() {
         try {
-            // MySQL视图会自动更新，不需要刷新操作
             reconciliationService.refreshMaterializedView();
             log.debug("支付对账数据刷新成功");
         } catch (Exception e) {
@@ -127,7 +128,7 @@ public class ReconciliationService {
         paymentRecord.setOrderNo(discrepancy.getOrderNo());
         paymentRecord.setAmount(discrepancy.getExpected());
         paymentRecord.setChannel(discrepancy.getChannel());
-        paymentRecord.setBackupChannel(discrepancy.getBackupChannel());
+        paymentRecord.setBackupIfCode(discrepancy.getBackupIfCode());
         paymentRecord.setCreateTime(new Date());
         paymentRecord.setUpdateTime(new Date());
         

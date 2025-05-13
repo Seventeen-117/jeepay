@@ -137,7 +137,7 @@ public class FallbackPaymentService {
                         paymentRecord.setOrderNo(payOrder.getPayOrderId());
                         paymentRecord.setAmount(new BigDecimal(payOrder.getAmount()));
                         paymentRecord.setChannel(payOrder.getIfCode());
-                        paymentRecord.setBackupChannel(backupIfCode);
+                        paymentRecord.setBackupIfCode(backupIfCode);
                         paymentRecord.setCreateTime(new Date());
                         paymentRecord.setUpdateTime(new Date());
                         

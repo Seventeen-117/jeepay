@@ -20,10 +20,12 @@ import com.jeequan.jeepay.components.mq.vender.IMQSender;
 import com.jeequan.jeepay.core.constants.CS;
 import com.jeequan.jeepay.core.entity.PayOrder;
 import com.jeequan.jeepay.core.entity.PayOrderCompensation;
+import com.jeequan.jeepay.core.entity.PaymentRecord;
 import com.jeequan.jeepay.core.exception.BizException;
 import com.jeequan.jeepay.pay.config.Resilience4jConfig;
 import com.jeequan.jeepay.pay.model.PayChannelMetrics;
 import com.jeequan.jeepay.service.impl.PayOrderService;
+import com.jeequan.jeepay.service.impl.PaymentRecordService;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -51,6 +53,7 @@ public class PaymentTransactionManager {
     @Autowired private PayOrderService payOrderService;
     @Autowired private IMQSender mqSender;
     @Autowired private CircuitBreakerRegistry circuitBreakerRegistry;
+    @Autowired private PaymentRecordService paymentRecordService;
     
     // 支付渠道度量指标缓存
     private final Map<String, PayChannelMetrics> channelMetricsMap = new ConcurrentHashMap<>();
@@ -241,5 +244,59 @@ public class PaymentTransactionManager {
                 })
                 .map(Map.Entry::getKey)
                 .orElse(null);
+    }
+
+    /**
+     * 根据订单号获取支付记录
+     * @param orderNo 订单号
+     * @return 支付记录，如果不存在则返回null
+     */
+    public PaymentRecord getPaymentRecordByOrderNo(String orderNo) {
+        try {
+            return paymentRecordService.getOne(
+                    PaymentRecord.gw().eq(PaymentRecord::getOrderNo, orderNo)
+            );
+        } catch (Exception e) {
+            log.error("查询支付记录异常，订单号: {}", orderNo, e);
+            return null;
+        }
+    }
+    
+    /**
+     * 更新支付记录
+     * @param record 支付记录
+     * @return 是否更新成功
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean updatePaymentRecord(PaymentRecord record) {
+        try {
+            record.setUpdateTime(new Date());
+            return paymentRecordService.updateById(record);
+        } catch (Exception e) {
+            log.error("更新支付记录异常，订单号: {}", record.getOrderNo(), e);
+            return false;
+        }
+    }
+    
+    /**
+     * 创建支付记录
+     * @param record 支付记录
+     * @return 是否创建成功
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean createPaymentRecord(PaymentRecord record) {
+        try {
+            Date now = new Date();
+            if (record.getCreateTime() == null) {
+                record.setCreateTime(now);
+            }
+            if (record.getUpdateTime() == null) {
+                record.setUpdateTime(now);
+            }
+            return paymentRecordService.save(record);
+        } catch (Exception e) {
+            log.error("创建支付记录异常，订单号: {}", record.getOrderNo(), e);
+            return false;
+        }
     }
 } 

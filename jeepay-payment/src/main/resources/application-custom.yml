@@ -1,0 +1,49 @@
+spring:
+  batch:
+    jdbc:
+      initialize-schema: always
+    job:
+      enabled: false  # 禁止自动运行Job
+
+# 支付对账配置
+jeepay:
+  reconciliation:
+    # 对账刷新间隔（毫秒）
+    refresh-interval: 5000
+    # 对账修复间隔（毫秒）
+    fix-interval: 60000
+    # 是否启用并发刷新（PostgreSQL）
+    concurrent-refresh: true
+    # 是否使用JPA访问物化视图
+    use-jpa: false
+  # JPA配置
+  jpa:
+    show-sql: false
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 100
+        temp:
+          use_jdbc_metadata_defaults: false
+  # 数据同步配置
+  sync:
+    # 初始同步天数
+    initial-days: 7
+    # 同步间隔（毫秒）
+    interval: 300000
+    # 是否开启MySQL->PostgreSQL数据同步
+    enabled: true
+    # 同步批次大小
+    batch-size: 500
+    # 同步表配置
+    tables:
+      - name: payment_records
+        primary-key: id
+        last-update-column: update_time
+      - name: t_pay_order
+        primary-key: pay_order_id
+        last-update-column: updated_at
+      - name: t_pay_order_compensation
+        primary-key: compensation_id
+        last-update-column: updated_at 

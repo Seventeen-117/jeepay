@@ -89,6 +89,24 @@ public class PaymentReconciliation implements Serializable {
     /**
      * 备用支付渠道（如果使用了备用渠道）
      */
-    @Column(name = "backup_channel")
-    private String backupChannel;
+    @Column(name = "backup_if_code")
+    private String backupIfCode;
+    
+    /**
+     * 获取预期金额
+     * 用于兼容代码中的getExpected()调用
+     * @return 预期金额
+     */
+    public BigDecimal getExpected() {
+        return expectedAmount;
+    }
+    
+    /**
+     * 获取实际金额
+     * 用于兼容代码中的getActual()调用
+     * @return 实际金额
+     */
+    public BigDecimal getActual() {
+        return actualAmount;
+    }
 } 

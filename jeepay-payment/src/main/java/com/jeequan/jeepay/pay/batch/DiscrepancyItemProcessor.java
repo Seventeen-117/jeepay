@@ -47,7 +47,7 @@ public class DiscrepancyItemProcessor implements ItemProcessor<PayOrder, Discrep
             discrepancy.setOrderNo(payOrder.getPayOrderId());
             discrepancy.setExpected(new BigDecimal(payOrder.getAmount()));
             discrepancy.setChannel(payOrder.getIfCode());
-            discrepancy.setBackupChannel(payOrder.getBackupIfCode());
+            discrepancy.setBackupIfCode(payOrder.getBackupIfCode());
             
             // 查询支付记录表中的实际支付金额
             BigDecimal actualAmount = paymentRecordService.queryActualPaymentAmount(payOrder.getPayOrderId());

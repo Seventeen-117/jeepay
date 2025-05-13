@@ -35,7 +35,7 @@
 
 
     <select id="sumSuccessDivisionAmount" resultType="Long">
-        select ifnull(sum(cal_division_amount), 0) from t_pay_order_division_record
+        select COALESCE(sum(cal_division_amount), 0) from t_pay_order_division_record
         where pay_order_id = #{payOrderId} and state = 1
     </select>
 

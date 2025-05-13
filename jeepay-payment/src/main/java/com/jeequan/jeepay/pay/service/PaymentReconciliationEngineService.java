@@ -20,12 +20,14 @@ import com.jeequan.jeepay.components.mq.vender.IMQSender;
 import com.jeequan.jeepay.core.constants.CS;
 import com.jeequan.jeepay.core.entity.PayOrder;
 import com.jeequan.jeepay.core.entity.PayOrderCompensation;
+import com.jeequan.jeepay.core.entity.PaymentRecord;
 import com.jeequan.jeepay.core.exception.BizException;
 import com.jeequan.jeepay.pay.channel.IPayOrderQueryService;
 import com.jeequan.jeepay.pay.model.MchAppConfigContext;
 import com.jeequan.jeepay.pay.rqrs.msg.ChannelRetMsg;
 import com.jeequan.jeepay.service.impl.PayOrderCompensationService;
 import com.jeequan.jeepay.service.impl.PayOrderService;
+import com.jeequan.jeepay.service.impl.PaymentRecordService;
 import com.jeequan.jeepay.core.utils.SpringBeansUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,6 +59,7 @@ public class PaymentReconciliationEngineService {
     @Autowired private ConfigContextQueryService configContextQueryService;
     @Autowired private IMQSender mqSender;
     @Autowired private PaymentTransactionManager paymentTransactionManager;
+    @Autowired private PaymentRecordService paymentRecordService;
     
     // 资金差异记录缓存
     private final Map<String, Map<String, Long>> fundDiscrepancyCache = new ConcurrentHashMap<>();
@@ -302,5 +305,89 @@ public class PaymentReconciliationEngineService {
         }
         
         return result;
+    }
+    
+    /**
+     * 处理金额不匹配的差异
+     * @param orderNo 订单号
+     * @param expectedAmount 预期金额
+     * @param actualAmount 实际金额
+     * @return 是否成功处理
+     */
+    public boolean handleAmountMismatch(String orderNo, BigDecimal expectedAmount, BigDecimal actualAmount) {
+        log.info("处理金额不匹配差异，订单号: {}, 预期金额: {}, 实际金额: {}", 
+                orderNo, expectedAmount, actualAmount);
+        
+        try {
+            // 查询支付记录
+            PaymentRecord record = paymentTransactionManager.getPaymentRecordByOrderNo(orderNo);
+            
+            if (record == null) {
+                log.warn("未找到支付记录，无法修复金额不匹配，订单号: {}", orderNo);
+                return false;
+            }
+            
+            // 更新支付记录金额
+            record.setAmount(expectedAmount);
+            record.setUpdateTime(new Date());
+            
+            boolean updated = paymentTransactionManager.updatePaymentRecord(record);
+            
+            if (updated) {
+                log.info("成功修复金额不匹配差异，订单号: {}", orderNo);
+                return true;
+            } else {
+                log.warn("修复金额不匹配差异失败，订单号: {}", orderNo);
+                return false;
+            }
+            
+        } catch (Exception e) {
+            log.error("处理金额不匹配差异异常，订单号: {}", orderNo, e);
+            return false;
+        }
+    }
+    
+    /**
+     * 处理缺失支付记录的差异
+     * @param orderNo 订单号
+     * @param expectedAmount 预期金额
+     * @return 是否成功处理
+     */
+    public boolean handleMissingPayment(String orderNo, BigDecimal expectedAmount) {
+        log.info("处理缺失支付记录差异，订单号: {}, 预期金额: {}", orderNo, expectedAmount);
+        
+        try {
+            // 查询订单
+            PayOrder payOrder = payOrderService.getById(orderNo);
+            
+            if (payOrder == null) {
+                log.warn("未找到订单，无法创建支付记录，订单号: {}", orderNo);
+                return false;
+            }
+            
+            // 创建支付记录
+            PaymentRecord record = new PaymentRecord();
+            record.setOrderNo(orderNo);
+            record.setAmount(expectedAmount);
+            record.setChannel(payOrder.getIfCode());
+            record.setBackupIfCode(payOrder.getBackupIfCode());
+            record.setCreateTime(new Date());
+            record.setUpdateTime(new Date());
+            
+            // 保存记录
+            boolean saved = paymentTransactionManager.createPaymentRecord(record);
+            
+            if (saved) {
+                log.info("成功创建补偿支付记录，订单号: {}", orderNo);
+                return true;
+            } else {
+                log.warn("创建补偿支付记录失败，订单号: {}", orderNo);
+                return false;
+            }
+            
+        } catch (Exception e) {
+            log.error("处理缺失支付记录差异异常，订单号: {}", orderNo, e);
+            return false;
+        }
     }
 } 

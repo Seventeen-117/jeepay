@@ -34,7 +34,7 @@
     </resultMap>
 
     <select id="sumSuccessRefundAmount" resultType="Long">
-        select ifnull(sum(refund_amount), 0) from t_refund_order
+        select COALESCE(sum(refund_amount), 0) from t_refund_order
         where pay_order_id = #{payOrderId} and state = 2
     </select>
 

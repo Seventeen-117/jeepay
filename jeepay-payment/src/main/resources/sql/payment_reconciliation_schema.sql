@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS `payment_records` (
   `order_no` varchar(64) NOT NULL COMMENT '订单号',
   `amount` decimal(20,6) NOT NULL COMMENT '支付金额',
   `channel` varchar(32) NOT NULL COMMENT '支付渠道',
-  `backup_channel` varchar(32) DEFAULT NULL COMMENT '备用支付渠道',
+  `backup_if_code` varchar(32) DEFAULT NULL COMMENT '备用支付渠道',
   `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS `payment_compensation_records` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增ID',
   `order_no` varchar(64) NOT NULL COMMENT '订单号',
   `primary_channel` varchar(32) NOT NULL COMMENT '主支付渠道',
-  `backup_channel` varchar(32) NOT NULL COMMENT '备用支付渠道',
+  `backup_if_code` varchar(32) NOT NULL COMMENT '备用支付渠道',
   `amount` decimal(20,6) NOT NULL COMMENT '支付金额',
   `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -33,15 +33,12 @@ CREATE TABLE IF NOT EXISTS `payment_reconciliation` (
   `discrepancy_amount` decimal(20,6) DEFAULT NULL COMMENT '差异金额',
   `is_fixed` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否已修复',
   `channel` varchar(32) DEFAULT NULL COMMENT '支付渠道',
-  `backup_channel` varchar(32) DEFAULT NULL COMMENT '备用支付渠道',
+  `backup_if_code` varchar(32) DEFAULT NULL COMMENT '备用支付渠道',
   `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`order_no`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='支付对账表';
 
--- 添加备用渠道字段到支付订单表
-ALTER TABLE `t_pay_order` 
-ADD COLUMN `backup_if_code` varchar(20) DEFAULT NULL COMMENT '备用支付接口代码' AFTER `if_code`;
 
 -- 创建支付渠道监控表
 CREATE TABLE IF NOT EXISTS `payment_channel_metrics` (
@@ -55,11 +52,4 @@ CREATE TABLE IF NOT EXISTS `payment_channel_metrics` (
   `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`if_code`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='支付渠道监控表';
-
--- 添加索引
-CREATE INDEX idx_payment_records_channel ON payment_records(channel);
-CREATE INDEX idx_payment_compensation_records_primary_channel ON payment_compensation_records(primary_channel);
-CREATE INDEX idx_payment_compensation_records_backup_channel ON payment_compensation_records(backup_channel);
-CREATE INDEX idx_payment_reconciliation_discrepancy_type ON payment_reconciliation(discrepancy_type);
-CREATE INDEX idx_payment_reconciliation_is_fixed ON payment_reconciliation(is_fixed); 
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='支付渠道监控表'; 
