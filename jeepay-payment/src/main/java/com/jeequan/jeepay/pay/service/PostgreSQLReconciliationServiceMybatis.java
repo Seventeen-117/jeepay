@@ -52,6 +52,9 @@ public class PostgreSQLReconciliationServiceMybatis extends ServiceImpl<PaymentR
     @Value("${jeepay.reconciliation.concurrent-refresh:false}")
     private boolean concurrentRefresh;
     
+    @Value("${jeepay.reconciliation.skip-sql-execution:false}")
+    private boolean skipSqlExecution;
+    
     /**
      * 刷新支付对账物化视图
      */
@@ -64,10 +67,6 @@ public class PostgreSQLReconciliationServiceMybatis extends ServiceImpl<PaymentR
                 log.error("无法连接到PostgreSQL数据库，跳过刷新操作");
                 return;
             }
-            
-            // 检查数据库是否支持物化视图
-            boolean materializedViewSupported = checkMaterializedViewSupport();
-            
             // 确保源表存在并且结构正确
             if (!checkSourceTablesExist()) {
                 log.error("源表不存在或结构不正确，跳过刷新操作");
@@ -80,14 +79,8 @@ public class PostgreSQLReconciliationServiceMybatis extends ServiceImpl<PaymentR
                 }
                 return;
             }
-            
-            if (materializedViewSupported) {
                 // 使用物化视图方式
                 refreshWithMaterializedView();
-            } else {
-                // 使用普通表方式
-                refreshWithRegularTable();
-            }
         } catch (Exception e) {
             log.error("刷新PostgreSQL支付对账视图过程中发生错误: {}", e.getMessage(), e);
             // 不抛出异常，让系统继续运行
@@ -107,34 +100,7 @@ public class PostgreSQLReconciliationServiceMybatis extends ServiceImpl<PaymentR
         }
     }
     
-    /**
-     * 检查是否支持物化视图
-     */
-    private boolean checkMaterializedViewSupport() {
-        try {
-            // 更可靠的方法检查物化视图功能
-            String checkSql = 
-                "SELECT EXISTS (" +
-                "   SELECT 1 FROM pg_namespace n JOIN pg_class c ON n.oid = c.relnamespace " +
-                "   WHERE n.nspname = 'pg_catalog' AND c.relname = 'pg_matviews'" +
-                ")";
-            
-            Boolean result = jdbcTemplate.queryForObject(checkSql, Boolean.class);
-            boolean supported = result != null && result;
-            
-            if (supported) {
-                log.info("当前PostgreSQL数据库支持物化视图功能");
-            } else {
-                log.warn("当前PostgreSQL数据库不支持物化视图功能，将使用普通表代替");
-            }
-            
-            return supported;
-        } catch (Exception e) {
-            log.warn("检查物化视图支持时出错，将使用普通表代替: {}", e.getMessage());
-            return false;
-        }
-    }
-    
+
     /**
      * 检查源表是否存在
      */
@@ -323,36 +289,48 @@ public class PostgreSQLReconciliationServiceMybatis extends ServiceImpl<PaymentR
     }
 
     /**
+     * 检查物化视图是否存在唯一索引
+     * 只有存在唯一索引的物化视图才能使用CONCURRENTLY刷新
+     */
+    private boolean checkUniqueIndexExists() {
+        try {
+            // 首先检查payment_reconciliation是否是物化视图
+            boolean isMaterializedView = checkIsMaterializedView("payment_reconciliation");
+            
+            if (isMaterializedView) {
+                // 对于物化视图，检查其关联的索引
+                String checkIndexSql = 
+                    "SELECT EXISTS (" +
+                    "   SELECT 1 FROM pg_indexes " +
+                    "   WHERE tablename = 'payment_reconciliation' " +
+                    "   AND indexdef LIKE '%UNIQUE%'" +
+                    ")";
+                
+                Boolean hasIndex = jdbcTemplate.queryForObject(checkIndexSql, Boolean.class);
+                return hasIndex != null && hasIndex;
+            } else {
+                // 如果不是物化视图，则不能有唯一索引（PostgreSQL中普通视图不支持索引）
+                log.debug("payment_reconciliation不是物化视图，不支持直接创建唯一索引");
+                return false;
+            }
+        } catch (Exception e) {
+            log.warn("检查唯一索引时出错: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * 使用物化视图方式刷新对账数据
      */
     private void refreshWithMaterializedView() {
         try {
-            // 再做一次具体的物化视图功能测试，以确保真的支持
-            if (!checkSpecificMaterializedViewSupport()) {
-                log.warn("物化视图功能测试失败，切换到普通表方式");
-                refreshWithRegularTable();
-                return;
-            }
-            
-            // 检查物化视图是否存在
-            boolean viewExists = checkMaterializedViewExists();
-            
-            if (!viewExists) {
-                // 物化视图不存在，尝试创建
-                log.info("物化视图不存在，尝试创建...");
-                ensureReconciliationViewExists();
-                // 再次检查是否创建成功
-                viewExists = checkMaterializedViewExists();
-                if (!viewExists) {
-                    log.error("物化视图创建失败，切换到普通表方式");
-                    refreshWithRegularTable();
-                    return;
-                }
-            }
-            
-            // 检查是否有唯一索引，决定刷新方式
+            // 检查是否有唯一索引，只有有唯一索引的情况下才能使用并发刷新
             boolean hasUniqueIndex = checkUniqueIndexExists();
             boolean useConurrentRefresh = concurrentRefresh && hasUniqueIndex;
+            
+            if (concurrentRefresh && !hasUniqueIndex) {
+                log.warn("物化视图没有唯一索引，无法使用并发刷新，将使用普通刷新");
+            }
             
             try {
                 if (useConurrentRefresh) {
@@ -367,27 +345,17 @@ public class PostgreSQLReconciliationServiceMybatis extends ServiceImpl<PaymentR
                     log.info("物化视图普通刷新完成");
                 }
             } catch (Exception e) {
-                log.error("刷新物化视图失败: {}", e.getMessage(), e);
+                log.error("刷新物化视图失败，错误信息: {}", e.getMessage(), e);
                 
                 // 记录导致失败的具体异常信息
                 Throwable rootCause = getRootCause(e);
                 log.error("刷新失败的根本原因: {}", rootCause.getMessage());
                 
-                // 尝试重建物化视图
-                log.info("尝试重建物化视图...");
-                try {
-                    createMaterializedViewSafely();
-                    log.info("物化视图重建成功");
-                } catch (Exception rebuildEx) {
-                    log.error("物化视图重建失败: {}", rebuildEx.getMessage(), rebuildEx);
-                    
-                    // 尝试修复数据一致性问题，例如删除异常数据
-                    tryRepairDataInconsistency();
-                    
-                    // 如果物化视图仍然失败，尝试使用普通表方式
-                    log.info("尝试切换到普通表方式...");
-                    refreshWithRegularTable();
-                }
+                log.warn("物化视图刷新失败。如果物化视图不存在或结构有问题，请使用postgresql_reconciliation_schema.sql脚本重新创建");
+                
+                // 尝试切换到普通表方式
+                log.info("尝试切换到普通表方式...");
+                refreshWithRegularTable();
             }
         } catch (Exception e) {
             log.error("使用物化视图刷新对账数据失败: {}", e.getMessage(), e);
@@ -404,11 +372,6 @@ public class PostgreSQLReconciliationServiceMybatis extends ServiceImpl<PaymentR
     private void refreshWithRegularTable() {
         try {
             log.info("使用普通表方式刷新对账数据...");
-            
-            // 检查对账表是否存在
-            ensureReconciliationTableExists();
-            
-            // 清空对账表并重新填充数据
             refreshReconciliationTable();
             
             log.info("普通表方式刷新完成");
@@ -427,96 +390,9 @@ public class PostgreSQLReconciliationServiceMybatis extends ServiceImpl<PaymentR
         }
         return getRootCause(cause);
     }
-    
-    /**
-     * 首先确保数据库环境支持物化视图
-     */
-    private boolean checkSpecificMaterializedViewSupport() {
-        try {
-            // 简化测试方式，单独执行每条语句
-            // 创建临时表
-            jdbcTemplate.execute("CREATE TEMP TABLE IF NOT EXISTS mv_test_source(id int)");
-            
-            // 清空临时表
-            jdbcTemplate.execute("TRUNCATE mv_test_source");
-            
-            // 插入测试数据
-            jdbcTemplate.execute("INSERT INTO mv_test_source VALUES(1)");
-            
-            // 尝试创建物化视图（先删除已存在的）
-            try {
-                jdbcTemplate.execute("DROP MATERIALIZED VIEW IF EXISTS mv_test");
-            } catch (Exception e) {
-                log.debug("删除测试物化视图失败，可能不存在: {}", e.getMessage());
-                // 继续测试
-            }
-            
-            // 尝试创建物化视图
-            jdbcTemplate.execute("CREATE MATERIALIZED VIEW mv_test AS SELECT * FROM mv_test_source");
-            
-            // 查询物化视图
-            jdbcTemplate.queryForList("SELECT * FROM mv_test");
-            
-            // 刷新物化视图
-            jdbcTemplate.execute("REFRESH MATERIALIZED VIEW mv_test");
-            
-            // 成功创建后删除
-            jdbcTemplate.execute("DROP MATERIALIZED VIEW mv_test");
-            
-            log.info("物化视图功能测试通过，数据库支持物化视图");
-            return true;
-        } catch (Exception e) {
-            log.warn("物化视图功能测试失败，数据库不支持物化视图: {}", e.getMessage());
-            return false;
-        } finally {
-            // 清理临时表
-            try {
-                jdbcTemplate.execute("DROP TABLE IF EXISTS mv_test_source");
-            } catch (Exception e) {
-                log.debug("清理临时表失败: {}", e.getMessage());
-            }
-        }
-    }
-    
-    /**
-     * 检查物化视图是否存在
-     */
-    private boolean checkMaterializedViewExists() {
-        try {
-            String checkViewSql = 
-                "SELECT EXISTS (" +
-                "   SELECT FROM pg_catalog.pg_matviews " +
-                "   WHERE matviewname = 'payment_reconciliation'" +
-                ");";
-            
-            Boolean viewExists = jdbcTemplate.queryForObject(checkViewSql, Boolean.class);
-            return viewExists != null && viewExists;
-        } catch (Exception e) {
-            log.error("检查物化视图是否存在时出错: {}", e.getMessage(), e);
-            return false;
-        }
-    }
-    
-    /**
-     * 检查物化视图是否存在唯一索引
-     * 只有存在唯一索引的物化视图才能使用CONCURRENTLY刷新
-     */
-    private boolean checkUniqueIndexExists() {
-        try {
-            String checkIndexSql = 
-                "SELECT EXISTS (" +
-                "   SELECT FROM pg_indexes " +
-                "   WHERE tablename = 'payment_reconciliation' " +
-                "   AND indexdef LIKE '%UNIQUE%'" +
-                ");";
-            
-            Boolean hasIndex = jdbcTemplate.queryForObject(checkIndexSql, Boolean.class);
-            return hasIndex != null && hasIndex;
-        } catch (Exception e) {
-            log.warn("检查唯一索引时出错: {}", e.getMessage());
-            return false;
-        }
-    }
+
+
+
     
     /**
      * 检查表是否存在
@@ -590,430 +466,29 @@ public class PostgreSQLReconciliationServiceMybatis extends ServiceImpl<PaymentR
         }
     }
 
+
+
+
+
     /**
-     * 确保支付对账物化视图存在
+     * 检查对象是否是物化视图
      */
-    private void ensureReconciliationViewExists() {
-        log.debug("检查支付对账物化视图是否存在...");
+    private boolean checkIsMaterializedView(String viewName) {
         try {
-            // 再次确认物化视图功能是否可用
-            if (!checkSpecificMaterializedViewSupport()) {
-                log.error("当前PostgreSQL数据库不支持物化视图功能，将使用普通表代替");
-                refreshWithRegularTable();
-                return;
-            }
-            
-            // 检查物化视图是否存在
-            String checkViewSql = 
+            String checkSql = 
                 "SELECT EXISTS (" +
                 "   SELECT FROM pg_catalog.pg_matviews " +
-                "   WHERE matviewname = 'payment_reconciliation'" +
-                ");";
+                "   WHERE matviewname = ?" +
+                ")";
             
-            Boolean viewExists = jdbcTemplate.queryForObject(checkViewSql, Boolean.class);
-            
-            if (viewExists == null || !viewExists) {
-                log.info("支付对账物化视图不存在，正在创建...");
-                
-                // 确保t_pay_order_compensation表存在（用于补偿记录）
-                ensureCompensationTableExists();
-                
-                // 先检查源表是否存在
-                if (checkSourceTablesExist()) {
-                    // 使用安全的方法创建物化视图
-                    createMaterializedViewSafely();
-                } else {
-                    log.error("源表不存在或结构不正确，无法创建物化视图");
-                    return;
-                }
-                
-                // 创建刷新函数
-                ensureRefreshFunctionExists();
-                
-                log.info("支付对账物化视图初始化完成");
-            } else {
-                log.debug("支付对账物化视图已存在");
-                
-                // 检查视图结构是否正确
-                if (!checkViewStructure()) {
-                    log.warn("物化视图结构不正确，尝试重建...");
-                    createMaterializedViewSafely();
-                }
-            }
+            Boolean isMaterializedView = jdbcTemplate.queryForObject(checkSql, Boolean.class, viewName);
+            return isMaterializedView != null && isMaterializedView;
         } catch (Exception e) {
-            log.error("检查或创建支付对账物化视图时出错: {}", e.getMessage(), e);
-            // 不抛出异常，让系统继续运行
-        }
-    }
-    
-    /**
-     * 确保补偿表存在
-     */
-    private void ensureCompensationTableExists() {
-        try {
-            String checkTableSql = 
-                "SELECT EXISTS (" +
-                "   SELECT FROM pg_catalog.pg_tables " +
-                "   WHERE tablename = 't_pay_order_compensation'" +
-                ");";
-            
-            Boolean tableExists = jdbcTemplate.queryForObject(checkTableSql, Boolean.class);
-            
-            if (tableExists == null || !tableExists) {
-                log.info("支付订单补偿表不存在，正在创建...");
-                
-                String createTableSql = 
-                    "CREATE TABLE IF NOT EXISTS t_pay_order_compensation (" +
-                    "    id SERIAL PRIMARY KEY," +
-                    "    order_no VARCHAR(64) NOT NULL," +
-                    "    discrepancy_amount NUMERIC(20,6) NOT NULL," +
-                    "    compensation_amount NUMERIC(20,6) NOT NULL," +
-                    "    discrepancy_type VARCHAR(20) NOT NULL," +
-                    "    status VARCHAR(20) NOT NULL DEFAULT 'PENDING'," +
-                    "    create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
-                    "    update_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
-                    "    channel VARCHAR(30)," +
-                    "    remarks TEXT," +
-                    "    CONSTRAINT uk_order_no UNIQUE (order_no)" +
-                    ");";
-                
-                jdbcTemplate.execute(createTableSql);
-                
-                // 创建索引
-                String createIndexSql = 
-                    "CREATE INDEX IF NOT EXISTS idx_t_pay_order_compensation_status ON t_pay_order_compensation (status);" +
-                    "CREATE INDEX IF NOT EXISTS idx_t_pay_order_compensation_create_time ON t_pay_order_compensation (create_time);";
-                
-                jdbcTemplate.execute(createIndexSql);
-                
-                log.info("支付订单补偿表创建完成");
-            }
-        } catch (Exception e) {
-            log.error("创建补偿表时出错: {}", e.getMessage(), e);
-            // 不抛出异常
-        }
-    }
-    
-    /**
-     * 检查物化视图结构是否正确
-     */
-    private boolean checkViewStructure() {
-        try {
-            String checkColumnsSql = 
-                "SELECT " +
-                "  COUNT(*) = 10 AS columns_exist " +
-                "FROM " +
-                "  information_schema.columns " +
-                "WHERE " +
-                "  table_name = 'payment_reconciliation' AND " +
-                "  column_name IN ('order_no', 'expected', 'actual', 'discrepancy_type', " +
-                "                  'discrepancy_amount', 'is_fixed', 'channel', " +
-                "                  'backup_if_code', 'create_time', 'update_time');";
-            
-            Boolean columnsExist = jdbcTemplate.queryForObject(checkColumnsSql, Boolean.class);
-            return columnsExist != null && columnsExist;
-        } catch (Exception e) {
-            log.warn("检查物化视图结构时出错: {}", e.getMessage());
+            log.warn("检查{}是否为物化视图时出错: {}", viewName, e.getMessage());
             return false;
         }
     }
-    
-    /**
-     * 安全地创建物化视图
-     */
-    private void createMaterializedViewSafely() {
-        try {
-            // 1. 首先尝试删除旧的物化视图（如果存在）
-            String dropViewSql = 
-                "DO $$ " +
-                "BEGIN " +
-                "    IF EXISTS (SELECT FROM pg_catalog.pg_matviews WHERE matviewname = 'payment_reconciliation') THEN " +
-                "        DROP MATERIALIZED VIEW payment_reconciliation; " +
-                "    END IF; " +
-                "END $$;";
-            
-            jdbcTemplate.execute(dropViewSql);
-            log.info("旧物化视图已清除（如果存在）");
-            
-            // 2. 检查源表中是否有数据，避免在无数据的情况下创建视图
-            String checkDataSql = "SELECT EXISTS (SELECT 1 FROM t_pay_order LIMIT 1)";
-            Boolean hasData = jdbcTemplate.queryForObject(checkDataSql, Boolean.class);
-            
-            if (hasData == null || !hasData) {
-                log.warn("t_pay_order表中没有数据，创建空视图");
-            }
-            
-            // 3. 创建新的物化视图
-            // 使用PL/pgSQL块来处理可能的错误
-            String createViewSql = 
-                "DO $$ " +
-                "BEGIN " +
-                "    BEGIN " +
-                "        CREATE MATERIALIZED VIEW payment_reconciliation AS " +
-                "        SELECT " +
-                "            po.pay_order_id AS order_no, " +
-                "            CAST(po.amount AS NUMERIC(20,6)) AS expected, " +
-                "            pr.amount AS actual, " +
-                "            CASE " +
-                "                WHEN pr.amount IS NULL THEN 'MISSING_PAYMENT' " +
-                "                WHEN CAST(po.amount AS NUMERIC(20,6)) != pr.amount THEN 'AMOUNT_MISMATCH' " +
-                "                ELSE 'NONE' " +
-                "            END AS discrepancy_type, " +
-                "            CASE " +
-                "                WHEN pr.amount IS NULL THEN CAST(po.amount AS NUMERIC(20,6)) " +
-                "                ELSE CAST(po.amount AS NUMERIC(20,6)) - pr.amount " +
-                "            END AS discrepancy_amount, " +
-                "            0 AS is_fixed, " +  // 注意这里是0而不是FALSE，与实体类字段类型一致
-                "            po.if_code AS channel, " +
-                "            po.backup_if_code, " +
-                "            CURRENT_TIMESTAMP AS create_time, " +
-                "            CURRENT_TIMESTAMP AS update_time " +
-                "        FROM " +
-                "            t_pay_order po " +
-                "        LEFT JOIN " +
-                "            payment_records pr ON po.pay_order_id = pr.order_no " +
-                "        WHERE " +
-                "            po.state = 2; " +
-                "        EXCEPTION WHEN OTHERS THEN " +
-                "            RAISE NOTICE 'Error creating materialized view: %', SQLERRM; " +
-                "            RAISE EXCEPTION '%', SQLERRM; " +
-                "    END; " +
-                "END $$;";
-            
-            jdbcTemplate.execute(createViewSql);
-            log.info("物化视图已创建");
-            
-            // 4. 刷新物化视图，为创建索引做准备
-            jdbcTemplate.execute("REFRESH MATERIALIZED VIEW payment_reconciliation");
-            log.info("物化视图已初始刷新");
-            
-            // 5. 创建索引
-            try {
-                // 使用事务保护索引创建
-                String createIndexSql = 
-                    "DO $$ " +
-                    "BEGIN " +
-                    "    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'payment_reconciliation_pkey') THEN " +
-                    "        CREATE UNIQUE INDEX payment_reconciliation_pkey ON payment_reconciliation (order_no); " +
-                    "    END IF; " +
-                    "END $$;";
-                
-                jdbcTemplate.execute(createIndexSql);
-                log.info("物化视图索引已创建");
-            } catch (Exception e) {
-                // 索引创建失败不应该阻止视图的使用
-                log.warn("创建索引失败，但物化视图仍可使用: {}", e.getMessage());
-            }
-            
-        } catch (Exception e) {
-            log.error("创建物化视图失败: {}", e.getMessage(), e);
-            
-            // 尝试创建一个基本版本的视图（如果上面的失败了）
-            try {
-                log.info("尝试创建简化版的物化视图...");
-                String fallbackViewSql = 
-                    "DO $$ " +
-                    "BEGIN " +
-                    "    BEGIN " +
-                    "        CREATE MATERIALIZED VIEW IF NOT EXISTS payment_reconciliation AS " +
-                    "        SELECT " +
-                    "            po.pay_order_id AS order_no, " +
-                    "            CAST(po.amount AS NUMERIC(20,6)) AS expected, " +
-                    "            NULL::NUMERIC AS actual, " +
-                    "            'MISSING_PAYMENT'::TEXT AS discrepancy_type, " +
-                    "            CAST(po.amount AS NUMERIC(20,6)) AS discrepancy_amount, " +
-                    "            0 AS is_fixed, " +  // 注意这里是0，与实体类字段类型一致
-                    "            po.if_code AS channel, " +
-                    "            po.backup_if_code, " +
-                    "            CURRENT_TIMESTAMP AS create_time, " +
-                    "            CURRENT_TIMESTAMP AS update_time " +
-                    "        FROM " +
-                    "            t_pay_order po " +
-                    "        WHERE " +
-                    "            po.state = 2; " +
-                    "        EXCEPTION WHEN OTHERS THEN " +
-                    "            RAISE NOTICE 'Error creating fallback materialized view: %', SQLERRM; " +
-                    "    END; " +
-                    "END $$;";
-                
-                jdbcTemplate.execute(fallbackViewSql);
-                log.info("简化版物化视图创建成功");
-                
-                // 刷新简化版视图
-                jdbcTemplate.execute("REFRESH MATERIALIZED VIEW payment_reconciliation");
-                
-            } catch (Exception fallbackEx) {
-                log.error("创建简化版物化视图也失败: {}", fallbackEx.getMessage(), fallbackEx);
-            }
-        }
-    }
-    
-    /**
-     * 确保刷新函数存在
-     */
-    private void ensureRefreshFunctionExists() {
-        try {
-            // 首先检查是否存在唯一索引
-            boolean hasUniqueIndex = checkUniqueIndexExists();
-            final String refreshType = hasUniqueIndex ? "CONCURRENTLY" : "";
-            
-            // 检查函数是否存在
-            String checkFunctionSql = 
-                "SELECT EXISTS (" +
-                "   SELECT FROM pg_proc " +
-                "   WHERE proname = 'refresh_payment_reconciliation'" +
-                ");";
-            
-            Boolean functionExists = jdbcTemplate.queryForObject(checkFunctionSql, Boolean.class);
-            
-            if (functionExists == null || !functionExists) {
-                log.info("刷新函数不存在，正在创建...");
-                
-                // 创建函数 - 根据索引情况决定是否使用CONCURRENTLY
-                String createFunctionSql = 
-                    "CREATE OR REPLACE FUNCTION refresh_payment_reconciliation() " +
-                    "RETURNS VOID AS $$ " +
-                    "BEGIN " +
-                    "    REFRESH MATERIALIZED VIEW " + refreshType + " payment_reconciliation; " +
-                    "END; " +
-                    "$$ LANGUAGE plpgsql;";
-                
-                jdbcTemplate.execute(createFunctionSql);
-                
-                // 添加函数注释
-                String commentSql = 
-                    "COMMENT ON FUNCTION refresh_payment_reconciliation() " +
-                    "IS '刷新支付对账物化视图的函数';";
-                
-                jdbcTemplate.execute(commentSql);
-                
-                log.info("刷新函数创建完成");
-            } else {
-                // 更新函数以反映索引的状态
-                String updateFunctionSql = 
-                    "CREATE OR REPLACE FUNCTION refresh_payment_reconciliation() " +
-                    "RETURNS VOID AS $$ " +
-                    "BEGIN " +
-                    "    REFRESH MATERIALIZED VIEW " + refreshType + " payment_reconciliation; " +
-                    "END; " +
-                    "$$ LANGUAGE plpgsql;";
-                
-                jdbcTemplate.execute(updateFunctionSql);
-                log.debug("刷新函数已更新");
-            }
-        } catch (Exception e) {
-            log.error("检查或创建刷新函数时出错", e);
-            throw e;  // 重新抛出异常，让调用方知道出错了
-        }
-    }
 
-    /**
-     * 确保对账表存在
-     */
-    private void ensureReconciliationTableExists() {
-        try {
-            // 检查表是否存在
-            String checkTableSql = 
-                "SELECT EXISTS (" +
-                "   SELECT FROM pg_catalog.pg_tables " +
-                "   WHERE tablename = 'payment_reconciliation'" +
-                ");";
-            
-            Boolean tableExists = jdbcTemplate.queryForObject(checkTableSql, Boolean.class);
-            
-            if (tableExists == null || !tableExists) {
-                log.info("支付对账表不存在，正在创建...");
-                
-                String createTableSql = 
-                    "CREATE TABLE IF NOT EXISTS payment_reconciliation (" +
-                    "    order_no VARCHAR(64) PRIMARY KEY," +
-                    "    expected DECIMAL(20,6) NOT NULL," +
-                    "    actual DECIMAL(20,6)," +
-                    "    discrepancy_type VARCHAR(20) NOT NULL," +
-                    "    discrepancy_amount DECIMAL(20,6) NOT NULL," +
-                    "    is_fixed INTEGER NOT NULL DEFAULT 0," +  // 使用Integer类型与实体类匹配
-                    "    channel VARCHAR(30)," +
-                    "    backup_if_code VARCHAR(30)," +
-                    "    create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
-                    "    update_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP" +
-                    ");";
-                
-                jdbcTemplate.execute(createTableSql);
-                
-                // 分别创建索引，避免语法错误
-                try {
-                    jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_payment_reconciliation_discrepancy_type ON payment_reconciliation (discrepancy_type)");
-                } catch (Exception e) {
-                    log.warn("创建索引idx_payment_reconciliation_discrepancy_type失败: {}", e.getMessage());
-                }
-                
-                try {
-                    jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_payment_reconciliation_is_fixed ON payment_reconciliation (is_fixed)");
-                } catch (Exception e) {
-                    log.warn("创建索引idx_payment_reconciliation_is_fixed失败: {}", e.getMessage());
-                }
-                
-                try {
-                    jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_payment_reconciliation_channel ON payment_reconciliation (channel)");
-                } catch (Exception e) {
-                    log.warn("创建索引idx_payment_reconciliation_channel失败: {}", e.getMessage());
-                }
-                
-                log.info("支付对账表创建完成");
-            } else {
-                // 检查表结构是否完整
-                ensureTableColumns("payment_reconciliation", new String[][]{
-                    {"order_no", "VARCHAR(64)"},
-                    {"expected", "DECIMAL(20,6)"},
-                    {"actual", "DECIMAL(20,6)"},
-                    {"discrepancy_type", "VARCHAR(20)"},
-                    {"discrepancy_amount", "DECIMAL(20,6)"},
-                    {"is_fixed", "INTEGER"},
-                    {"channel", "VARCHAR(30)"},
-                    {"backup_if_code", "VARCHAR(30)"},
-                    {"create_time", "TIMESTAMP"},
-                    {"update_time", "TIMESTAMP"}
-                });
-            }
-        } catch (Exception e) {
-            log.error("确保对账表存在时出错: {}", e.getMessage(), e);
-            // 不直接抛出异常，让系统继续运行
-        }
-    }
-    
-    /**
-     * 确保表包含所有必要的列
-     */
-    private void ensureTableColumns(String tableName, String[][] columns) {
-        for (String[] column : columns) {
-            String columnName = column[0];
-            String columnType = column[1];
-            
-            // 检查列是否存在
-            String checkColumnSql = 
-                "SELECT EXISTS (" +
-                "   SELECT FROM information_schema.columns " +
-                "   WHERE table_name = ? AND column_name = ?" +
-                ");";
-            
-            Boolean columnExists = jdbcTemplate.queryForObject(checkColumnSql, Boolean.class, tableName, columnName);
-            
-            if (columnExists == null || !columnExists) {
-                log.warn("表[{}]缺少列[{}]，尝试添加...", tableName, columnName);
-                
-                // 添加缺失的列
-                String addColumnSql = "ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnType;
-                
-                try {
-                    jdbcTemplate.execute(addColumnSql);
-                    log.info("表[{}]添加列[{}]成功", tableName, columnName);
-                } catch (Exception e) {
-                    log.error("表[{}]添加列[{}]失败: {}", tableName, columnName, e.getMessage(), e);
-                }
-            }
-        }
-    }
-    
     /**
      * 刷新对账表数据
      */
@@ -1023,23 +498,111 @@ public class PostgreSQLReconciliationServiceMybatis extends ServiceImpl<PaymentR
             
             // 首先检查表是否存在
             if (!checkTableExists("payment_reconciliation")) {
-                log.error("payment_reconciliation表不存在，无法刷新");
-                // 尝试重新创建表
-                ensureReconciliationTableExists();
-                
-                // 再次检查表是否存在
-                if (!checkTableExists("payment_reconciliation")) {
-                    log.error("无法创建payment_reconciliation表，中止刷新");
-                    return;
+                log.error("payment_reconciliation表/视图不存在，无法刷新");
+                log.info("请使用postgresql_reconciliation_schema.sql脚本创建物化视图");
+                return; // 直接返回，不尝试创建表/视图
+            }
+
+            // 检查payment_reconciliation是否是物化视图
+            boolean isMaterializedView = checkIsMaterializedView("payment_reconciliation");
+            
+            if (isMaterializedView) {
+                // 如果是物化视图，使用REFRESH MATERIALIZED VIEW命令
+                log.info("payment_reconciliation是物化视图，使用REFRESH MATERIALIZED VIEW刷新...");
+                try {
+                    // 检查是否有唯一索引以决定是否可以并发刷新
+                    boolean hasUniqueIndex = checkUniqueIndexExists();
+                    boolean canUseConcurrentRefresh = concurrentRefresh && hasUniqueIndex;
+                    
+                    if (concurrentRefresh && !hasUniqueIndex) {
+                        log.warn("物化视图没有唯一索引，无法使用并发刷新，将使用普通刷新");
+                    }
+                    
+                    if (canUseConcurrentRefresh) {
+                        // 如果启用了并发刷新且存在唯一索引，使用CONCURRENTLY选项
+                        log.info("使用并发方式刷新物化视图...");
+                        jdbcTemplate.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY payment_reconciliation");
+                        log.info("物化视图并发刷新完成");
+                    } else {
+                        // 使用普通刷新
+                        log.info("使用普通方式刷新物化视图...");
+                        jdbcTemplate.execute("REFRESH MATERIALIZED VIEW payment_reconciliation");
+                        log.info("物化视图普通刷新完成");
+                    }
+                    
+                    return; // 刷新完成后直接返回，不需要后续操作
+                } catch (Exception e) {
+                    log.error("刷新物化视图失败，错误信息: {}", e.getMessage(), e);
+                    log.warn("物化视图刷新失败。如果物化视图不存在或结构有问题，请使用postgresql_reconciliation_schema.sql脚本重新创建");
+                    return; // 不尝试重建物化视图，直接返回
                 }
+            } else {
+                log.info("payment_reconciliation不是物化视图，继续使用常规方式刷新...");
             }
 
             // 使用DELETE替代TRUNCATE，更兼容
             try {
-                log.info("清空对账表中的旧数据...");
+                log.info("尝试清空对账表中的旧数据...");
                 jdbcTemplate.execute("DELETE FROM payment_reconciliation");
             } catch (Exception e) {
                 log.warn("使用DELETE清空表失败，尝试其他方式: {}", e.getMessage());
+                
+                // 检查是否是视图无法删除的错误
+                if (e.getMessage() != null && e.getMessage().contains("cannot delete from view")) {
+                    log.info("payment_reconciliation是一个视图，无法直接DELETE。尝试使用TRUNCATE命令...");
+                    try {
+                        // 对于某些视图，可能可以使用TRUNCATE
+                        jdbcTemplate.execute("TRUNCATE TABLE payment_reconciliation");
+                        log.info("使用TRUNCATE清空视图成功");
+                    } catch (Exception truncateEx) {
+                        log.warn("使用TRUNCATE清空视图失败: {}", truncateEx.getMessage());
+                        
+                        // 如果是视图且无法删除，考虑创建INSTEAD OF DELETE触发器
+                        log.info("尝试为视图创建INSTEAD OF DELETE触发器...");
+                        try {
+                            // 检查触发器是否已存在
+                            String checkTriggerSql = 
+                                "SELECT EXISTS (" +
+                                "   SELECT FROM pg_trigger " +
+                                "   WHERE tgname = 'payment_reconciliation_delete_trigger'" +
+                                ")";
+                            
+                            Boolean triggerExists = jdbcTemplate.queryForObject(checkTriggerSql, Boolean.class);
+                            
+                            if (triggerExists == null || !triggerExists) {
+                                // 创建触发器功能
+                                String createFunctionSql = 
+                                    "CREATE OR REPLACE FUNCTION payment_reconciliation_delete_func() " +
+                                    "RETURNS TRIGGER AS $$ " +
+                                    "BEGIN " +
+                                    "    DELETE FROM payment_reconciliation_data WHERE order_no = OLD.order_no; " +
+                                    "    RETURN OLD; " +
+                                    "END; " +
+                                    "$$ LANGUAGE plpgsql;";
+                                
+                                // 创建触发器
+                                String createTriggerSql = 
+                                    "CREATE TRIGGER payment_reconciliation_delete_trigger " +
+                                    "INSTEAD OF DELETE ON payment_reconciliation " +
+                                    "FOR EACH ROW " +
+                                    "EXECUTE FUNCTION payment_reconciliation_delete_func();";
+                                
+                                // 执行创建
+                                jdbcTemplate.execute(createFunctionSql);
+                                jdbcTemplate.execute(createTriggerSql);
+                                
+                                log.info("视图触发器创建成功");
+                                
+                                // 再次尝试删除
+                                jdbcTemplate.execute("DELETE FROM payment_reconciliation");
+                                log.info("通过触发器清空视图成功");
+                            }
+                        } catch (Exception triggerEx) {
+                            log.warn("创建视图触发器失败: {}", triggerEx.getMessage());
+                            // 继续尝试其他方法
+                        }
+                    }
+                }
                 
                 // 尝试不清空表，直接使用INSERT或UPDATE方式
                 log.info("跳过清空表步骤，直接更新数据");
@@ -1417,21 +980,6 @@ public class PostgreSQLReconciliationServiceMybatis extends ServiceImpl<PaymentR
         try {
             // 先刷新视图以确保数据最新
             refreshReconciliationView();
-            
-            // 检查表是否存在
-            String checkTableSql = 
-                "SELECT EXISTS (" +
-                "   SELECT 1 FROM information_schema.tables " +
-                "   WHERE table_name = 'payment_reconciliation'" +
-                ");";
-            
-            Boolean tableExists = jdbcTemplate.queryForObject(checkTableSql, Boolean.class);
-            
-            if (tableExists == null || !tableExists) {
-                log.error("payment_reconciliation表不存在，无法获取统计信息");
-                return createEmptyStats();
-            }
-            
             // 使用MyBatis-Plus的聚合查询功能较复杂，这里仍使用原生SQL
             String sql = "SELECT " +
                     "COUNT(*) AS total_records, " +

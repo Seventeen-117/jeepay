@@ -72,20 +72,16 @@ public class PaymentReconciliationService extends ServiceImpl<PaymentReconciliat
      */
     public void createMaterializedView() {
         try {
-            // 使用一个通用方法清理所有可能存在的同名对象，无论是什么类型
-            log.info("清理可能存在的旧对象（表、视图、物化视图）...");
-            baseMapper.dropAllReconciliationObjects();
-            
+            // 不再删除物化视图，由postgresql_reconciliation_schema.sql脚本管理
+            log.info("物化视图由postgresql_reconciliation_schema.sql脚本管理，不在代码中操作");
+
             // 根据数据库类型创建相应的视图
             if (isPostgreSQLDatabase()) {
                 log.info("使用PostgreSQL物化视图来实现实时资金对账");
-                baseMapper.createPostgreSQLMaterializedView();
-                baseMapper.createMaterializedViewIndex();
             } else {
                 log.info("使用MySQL视图来实现对账");
-                baseMapper.createMySQLView();
             }
-            
+
             log.info("对账视图创建完成");
         } catch (Exception e) {
             log.error("创建视图失败", e);

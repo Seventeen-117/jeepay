@@ -277,8 +277,9 @@ COMMENT ON COLUMN t_pay_order_compensation.created_at IS '创建时间';
 COMMENT ON COLUMN t_pay_order_compensation.updated_at IS '更新时间';
 
 -- 创建支付对账物化视图
-CREATE MATERIALIZED VIEW IF NOT EXISTS payment_reconciliation AS
-SELECT 
+DROP VIEW IF EXISTS payment_reconciliation;
+CREATE MATERIALIZED VIEW payment_reconciliation AS
+SELECT
     po.pay_order_id AS order_no,
     CAST(po.amount AS NUMERIC(20,6)) AS expected,
     pr.amount AS actual,
@@ -286,21 +287,21 @@ SELECT
         WHEN pr.amount IS NULL THEN 'MISSING_PAYMENT'
         WHEN CAST(po.amount AS NUMERIC(20,6)) != pr.amount THEN 'AMOUNT_MISMATCH'
         ELSE 'NONE'
-    END AS discrepancy_type,
+        END AS discrepancy_type,
     CASE
         WHEN pr.amount IS NULL THEN CAST(po.amount AS NUMERIC(20,6))
         ELSE CAST(po.amount AS NUMERIC(20,6)) - pr.amount
-    END AS discrepancy_amount,
-    FALSE AS is_fixed,
+        END AS discrepancy_amount,
+    0 AS is_fixed,  -- Using 0 instead of FALSE to match your Java entity
     po.if_code AS channel,
     po.backup_if_code,
     CURRENT_TIMESTAMP AS create_time,
     CURRENT_TIMESTAMP AS update_time
-FROM 
+FROM
     t_pay_order po
-LEFT JOIN 
+        LEFT JOIN
     payment_records pr ON po.pay_order_id = pr.order_no
-WHERE 
+WHERE
     po.state = 2;  -- 支付状态为成功的订单
 
 -- 为物化视图创建主键

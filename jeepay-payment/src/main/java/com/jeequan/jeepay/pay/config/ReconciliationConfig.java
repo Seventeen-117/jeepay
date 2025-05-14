@@ -259,10 +259,11 @@ public class ReconciliationConfig implements SchedulingConfigurer {
                     // 如果不存在，先创建刷新函数
                     createRefreshFunctionIfNotExists();
                     
-                    // 尝试创建物化视图
-                    createMaterializedView();
+                    // 物化视图不存在，记录日志提示
+                    log.warn("支付对账物化视图不存在，请使用SQL脚本创建");
                     
-                    log.info("支付对账物化视图创建完成");
+                    // 不再创建物化视图，因为现在由SQL脚本处理
+                    log.info("物化视图由postgresql_reconciliation_schema.sql负责创建，不在代码中处理");
                 }
             } catch (Exception e) {
                 log.error("刷新物化视图失败", e);
@@ -348,56 +349,6 @@ public class ReconciliationConfig implements SchedulingConfigurer {
                 }
             } catch (Exception e) {
                 log.error("创建刷新函数时出错", e);
-                throw e;
-            }
-        }
-        
-        /**
-         * 创建物化视图
-         */
-        private void createMaterializedView() {
-            try {
-                log.info("尝试创建物化视图...");
-                
-                // 创建物化视图
-                String createViewSql = 
-                    "CREATE MATERIALIZED VIEW IF NOT EXISTS payment_reconciliation AS " +
-                    "SELECT " +
-                    "    po.pay_order_id AS order_no, " +
-                    "    CAST(po.amount AS NUMERIC(20,6)) AS expected, " +
-                    "    pr.amount AS actual, " +
-                    "    CASE " +
-                    "        WHEN pr.amount IS NULL THEN 'MISSING_PAYMENT' " +
-                    "        WHEN CAST(po.amount AS NUMERIC(20,6)) != pr.amount THEN 'AMOUNT_MISMATCH' " +
-                    "        ELSE 'NONE' " +
-                    "    END AS discrepancy_type, " +
-                    "    CASE " +
-                    "        WHEN pr.amount IS NULL THEN CAST(po.amount AS NUMERIC(20,6)) " +
-                    "        ELSE CAST(po.amount AS NUMERIC(20,6)) - pr.amount " +
-                    "    END AS discrepancy_amount, " +
-                    "    FALSE AS is_fixed, " +
-                    "    po.if_code AS channel, " +
-                    "    po.backup_if_code, " +
-                    "    CURRENT_TIMESTAMP AS create_time, " +
-                    "    CURRENT_TIMESTAMP AS update_time " +
-                    "FROM " +
-                    "    t_pay_order po " +
-                    "LEFT JOIN " +
-                    "    payment_records pr ON po.pay_order_id = pr.order_no " +
-                    "WHERE " +
-                    "    po.state = 2;";  // 支付状态为成功的订单
-                
-                jdbcTemplate.execute(createViewSql);
-                
-                // 创建索引
-                String createIndexSql = 
-                    "CREATE UNIQUE INDEX IF NOT EXISTS payment_reconciliation_pkey " +
-                    "ON payment_reconciliation (order_no);";
-                
-                jdbcTemplate.execute(createIndexSql);
-                
-            } catch (Exception e) {
-                log.error("创建物化视图时出错", e);
                 throw e;
             }
         }

@@ -118,27 +118,10 @@ public class ReconciliationInitializer implements SchedulingConfigurer {
      * 初始化PostgreSQL环境
      */
     private void initializePostgreSQL() {
-        // PostgreSQL 需要按特定顺序删除对象
+        // PostgreSQL 环境初始化
         try {
-            // 使用新的通用方法，一次性删除所有类型的对象
-            try {
-                paymentReconciliationMapper.dropAllReconciliationObjects();
-                log.info("已清理旧的对账关系对象（表、视图、物化视图）");
-            } catch (Exception e) {
-                log.warn("清理对账关系对象时出错: {}", e.getMessage());
-            }
-            
-            // 创建新的物化视图
-            try {
-                paymentReconciliationMapper.createPostgreSQLMaterializedView();
-                log.info("已创建PostgreSQL物化视图");
-                
-                paymentReconciliationMapper.createMaterializedViewIndex();
-                log.info("已创建PostgreSQL物化视图索引");
-            } catch (Exception e) {
-                log.error("创建PostgreSQL物化视图失败", e);
-                throw e; // 重新抛出异常，防止初始化过程继续
-            }
+            // 不再删除物化视图，由postgresql_reconciliation_schema.sql脚本管理
+            log.info("物化视图由postgresql_reconciliation_schema.sql脚本管理，不在代码中删除或创建");
         } catch (Exception e) {
             log.error("PostgreSQL环境初始化失败", e);
         }
@@ -148,23 +131,10 @@ public class ReconciliationInitializer implements SchedulingConfigurer {
      * 初始化MySQL环境
      */
     private void initializeMySQL() {
-        // MySQL更简单，只需删除视图后重新创建
+        // MySQL环境初始化
         try {
-            // 使用新的通用方法，一次性删除所有类型的对象
-            try {
-                paymentReconciliationMapper.dropAllReconciliationObjects();
-                log.info("已清理旧的对账关系对象（表、视图）");
-            } catch (Exception e) {
-                log.warn("清理对账关系对象时出错: {}", e.getMessage());
-            }
-            
-            // 创建新视图
-            try {
-                paymentReconciliationMapper.createMySQLView();
-                log.info("已创建MySQL视图");
-            } catch (Exception e) {
-                log.error("创建MySQL视图失败", e);
-            }
+            // 不再删除视图，由SQL脚本管理
+            log.info("视图由SQL脚本管理，不在代码中删除或创建");
         } catch (Exception e) {
             log.error("MySQL环境初始化失败", e);
         }

@@ -32,86 +32,15 @@ import org.apache.ibatis.annotations.Update;
 public interface PaymentReconciliationMapper extends BaseMapper<PaymentReconciliation> {
 
     /**
-     * 删除视图或物化视图（不管是什么类型都尝试删除）
-     * 提供一个通用的方法尝试所有可能的对象类型
+     * 物化视图删除方法已移除
+     * payment_reconciliation 物化视图由 postgresql_reconciliation_schema.sql 脚本管理
+     * 不再提供代码级别的物化视图删除功能
      */
-    @Update("DO $$ " +
-           "BEGIN " +
-           "    BEGIN " +
-           "        DROP MATERIALIZED VIEW IF EXISTS payment_reconciliation; " +
-           "        RAISE NOTICE 'Dropped materialized view payment_reconciliation'; " +
-           "    EXCEPTION WHEN OTHERS THEN " +
-           "        RAISE NOTICE 'No materialized view found or other error'; " +
-           "    END; " +
-           "    BEGIN " +
-           "        DROP VIEW IF EXISTS payment_reconciliation; " +
-           "        RAISE NOTICE 'Dropped view payment_reconciliation'; " +
-           "    EXCEPTION WHEN OTHERS THEN " +
-           "        RAISE NOTICE 'No view found or other error'; " +
-           "    END; " +
-           "    BEGIN " +
-           "        DROP TABLE IF EXISTS payment_reconciliation; " +
-           "        RAISE NOTICE 'Dropped table payment_reconciliation'; " +
-           "    EXCEPTION WHEN OTHERS THEN " +
-           "        RAISE NOTICE 'No table found or other error'; " +
-           "    END; " +
-           "END $$")
-    void dropAllReconciliationObjects();
-    
+
     /**
-     * 创建MySQL视图（当数据库类型为MySQL时调用）
+     * 创建MySQL视图的方法已移除
+     * 所有视图/物化视图的创建均通过postgresql_reconciliation_schema.sql脚本直接在数据库中创建
      */
-    @Update("CREATE OR REPLACE VIEW payment_reconciliation AS " +
-            "SELECT " +
-            "po.pay_order_id as order_no, " +
-            "po.amount as expected, " +
-            "pr.amount as actual, " +
-            "CASE " +
-            "WHEN pr.amount IS NULL THEN 'MISSING_PAYMENT' " +
-            "WHEN po.amount != pr.amount THEN 'AMOUNT_MISMATCH' " +
-            "ELSE 'NONE' " +
-            "END as discrepancy_type, " +
-            "(po.amount - COALESCE(pr.amount, 0)) as discrepancy_amount, " +
-            "0 as is_fixed, " +
-            "po.if_code as channel, " +
-            "po.backup_if_code as backup_if_code, " +
-            "NOW() as create_time, " +
-            "NOW() as update_time " +
-            "FROM t_pay_order po " +
-            "LEFT JOIN payment_records pr ON po.pay_order_id = pr.order_no " +
-            "WHERE po.state = 2")
-    void createMySQLView();
-    
-    /**
-     * 创建PostgreSQL物化视图（当数据库类型为PostgreSQL时调用）
-     */
-    @Update("CREATE MATERIALIZED VIEW IF NOT EXISTS payment_reconciliation AS " +
-            "SELECT " +
-            "po.pay_order_id as order_no, " +
-            "po.amount as expected, " +
-            "pr.amount as actual, " +
-            "CASE " +
-            "WHEN pr.amount IS NULL THEN 'MISSING_PAYMENT' " +
-            "WHEN po.amount != pr.amount THEN 'AMOUNT_MISMATCH' " +
-            "ELSE 'NONE' " +
-            "END as discrepancy_type, " +
-            "(po.amount - COALESCE(pr.amount, 0)) as discrepancy_amount, " +
-            "0 as is_fixed, " +
-            "po.if_code as channel, " +
-            "po.backup_if_code as backup_if_code, " +
-            "NOW() as create_time, " +
-            "NOW() as update_time " +
-            "FROM t_pay_order po " +
-            "LEFT JOIN payment_records pr ON po.pay_order_id = pr.order_no " +
-            "WHERE po.state = 2 " +
-            "WITH DATA")
-    void createPostgreSQLMaterializedView();
-    
-    /**
-     * 创建对物化视图的索引（提高查询性能）
-     */
-    @Update("CREATE INDEX IF NOT EXISTS idx_payment_reconciliation_order_no ON payment_reconciliation(order_no)")
-    void createMaterializedViewIndex();
 
     /**
      * 刷新MySQL视图（MySQL视图不需要刷新，此方法为空操作）

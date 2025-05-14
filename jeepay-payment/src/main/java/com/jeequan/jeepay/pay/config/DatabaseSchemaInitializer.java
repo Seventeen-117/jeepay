@@ -46,6 +46,10 @@ public class DatabaseSchemaInitializer {
     
     @Value("${spring.datasource.dynamic.primary:mysql}")
     private String primaryDataSource;
+    
+    // 是否跳过SQL脚本执行，设置为true表示已手动执行过所有SQL脚本
+    @Value("${jeepay.reconciliation.skip-sql-execution:false}")
+    private boolean skipSqlExecution;
 
     /**
      * 应用启动时自动加载数据库初始化脚本
@@ -53,12 +57,21 @@ public class DatabaseSchemaInitializer {
     @PostConstruct
     public void init() {
         try {
+            if (skipSqlExecution) {
+                log.info("根据配置跳过SQL脚本自动执行，仅进行表结构检查");
+            }
+            
             if (isPostgreSQLDatabase()) {
                 loadPostgreSQLSchema();
-                // 确保关键表存在
-                ensureRefundOrderTableExists();
-                ensurePayOrderDivisionRecordTableExists();
-                ensureTransferOrderTableExists();
+                // 如果配置为跳过SQL执行，只检查转账表
+                if (skipSqlExecution) {
+                    ensureTransferOrderTableExists();
+                } else {
+                    // 确保关键表存在
+                    ensureRefundOrderTableExists();
+                    ensurePayOrderDivisionRecordTableExists();
+                    ensureTransferOrderTableExists();
+                }
             } else {
                 loadMySQLSchema();
             }
@@ -92,40 +105,161 @@ public class DatabaseSchemaInitializer {
      * 加载PostgreSQL初始化脚本
      */
     private void loadPostgreSQLSchema() {
-        log.info("加载PostgreSQL初始化脚本...");
-        try {
-            // 首先创建表
-            ResourceDatabasePopulator tableCreator = new ResourceDatabasePopulator();
-            tableCreator.addScript(new ClassPathResource("sql/postgresql_reconciliation_schema.sql"));
-            tableCreator.setIgnoreFailedDrops(true);
-            tableCreator.setContinueOnError(true);
-            tableCreator.execute(dataSource);
-            log.info("PostgreSQL表创建完成");
-            
-            // 确保补偿记录表存在
-            ensurePayOrderCompensationTableExists();
-            
-            // 等待一秒确保表创建完成
-            try { Thread.sleep(1000); } catch (InterruptedException e) { /* ignore */ }
-            
-            // 然后创建索引
-            ResourceDatabasePopulator indexCreator = new ResourceDatabasePopulator();
-            indexCreator.addScript(new ClassPathResource("sql/postgresql_reconciliation_indexes.sql"));
-            indexCreator.setIgnoreFailedDrops(true);
-            indexCreator.setContinueOnError(true);
-            indexCreator.execute(dataSource);
-            log.info("PostgreSQL索引创建完成");
-            
-            // 刷新物化视图
-            try (Connection conn = dataSource.getConnection();
-                 java.sql.Statement stmt = conn.createStatement()) {
-                stmt.execute("SELECT refresh_payment_reconciliation()");
-                log.info("PostgreSQL物化视图刷新完成");
-            } catch (SQLException e) {
-                log.warn("刷新物化视图失败，可能是首次运行: {}", e.getMessage());
+        if (skipSqlExecution) {
+            log.info("检查PostgreSQL数据库表结构...");
+            try {
+                // 仅检查必要的表是否存在，不执行SQL脚本
+                boolean allTablesExist = checkNecessaryTablesExist();
+                
+                if (!allTablesExist) {
+                    log.warn("部分必要的表不存在。如需自动创建表，请设置jeepay.reconciliation.skip-sql-execution=false");
+                } else {
+                    log.info("所有必要的表都存在");
+                    
+                    // 刷新物化视图（如果存在）
+                    try (Connection conn = dataSource.getConnection();
+                         java.sql.Statement stmt = conn.createStatement()) {
+                        
+                        // 首先检查刷新函数是否存在
+                        boolean refreshFunctionExists = false;
+                        try {
+                            ResultSet rs = stmt.executeQuery(
+                                "SELECT EXISTS (" +
+                                "   SELECT 1 FROM pg_proc " +
+                                "   WHERE proname = 'refresh_payment_reconciliation'" +
+                                ");"
+                            );
+                            if (rs.next()) {
+                                refreshFunctionExists = rs.getBoolean(1);
+                            }
+                            rs.close();
+                        } catch (Exception e) {
+                            log.debug("检查刷新函数失败: {}", e.getMessage());
+                        }
+                        
+                        if (refreshFunctionExists) {
+                            stmt.execute("SELECT refresh_payment_reconciliation()");
+                            log.info("PostgreSQL物化视图刷新完成");
+                        } else {
+                            log.info("刷新函数不存在，跳过物化视图刷新");
+                        }
+                    } catch (SQLException e) {
+                        log.warn("刷新物化视图失败: {}", e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                log.error("PostgreSQL数据库表结构检查失败", e);
             }
+        } else {
+            log.info("加载PostgreSQL初始化脚本...");
+            try {
+                // 首先创建表
+                ResourceDatabasePopulator tableCreator = new ResourceDatabasePopulator();
+                tableCreator.addScript(new ClassPathResource("sql/postgresql_reconciliation_schema.sql"));
+                tableCreator.setIgnoreFailedDrops(true);
+                tableCreator.setContinueOnError(true);
+                tableCreator.execute(dataSource);
+                log.info("PostgreSQL表创建完成");
+                
+                // 确保补偿记录表存在
+                ensurePayOrderCompensationTableExists();
+                
+                // 等待一秒确保表创建完成
+                try { Thread.sleep(1000); } catch (InterruptedException e) { /* ignore */ }
+                
+                // 然后创建索引
+                ResourceDatabasePopulator indexCreator = new ResourceDatabasePopulator();
+                indexCreator.addScript(new ClassPathResource("sql/postgresql_reconciliation_indexes.sql"));
+                indexCreator.setIgnoreFailedDrops(true);
+                indexCreator.setContinueOnError(true);
+                indexCreator.execute(dataSource);
+                log.info("PostgreSQL索引创建完成");
+                
+                // 刷新物化视图
+                try (Connection conn = dataSource.getConnection();
+                     java.sql.Statement stmt = conn.createStatement()) {
+                    stmt.execute("SELECT refresh_payment_reconciliation()");
+                    log.info("PostgreSQL物化视图刷新完成");
+                } catch (SQLException e) {
+                    log.warn("刷新物化视图失败，可能是首次运行: {}", e.getMessage());
+                }
+            } catch (Exception e) {
+                log.error("加载PostgreSQL初始化脚本失败", e);
+            }
+        }
+    }
+    
+    /**
+     * 检查所有必要的表是否存在
+     * @return 所有表都存在返回true，否则返回false
+     */
+    private boolean checkNecessaryTablesExist() {
+        try (Connection conn = dataSource.getConnection();
+             java.sql.Statement stmt = conn.createStatement()) {
+            
+            // 需要检查的表列表
+            String[] requiredTables = {
+                "payment_records", 
+                "payment_compensation_records", 
+                "t_pay_order", 
+                "t_refund_order", 
+                "t_pay_order_division_record",
+                "t_pay_order_compensation",
+                "t_transfer_order",
+                "payment_channel_metrics"
+            };
+            
+            // 检查物化视图
+            try {
+                ResultSet rs = stmt.executeQuery(
+                    "SELECT EXISTS (" +
+                    "   SELECT FROM pg_catalog.pg_matviews " +
+                    "   WHERE matviewname = 'payment_reconciliation'" +
+                    ");"
+                );
+                boolean matviewExists = false;
+                if (rs.next()) {
+                    matviewExists = rs.getBoolean(1);
+                }
+                rs.close();
+                
+                if (!matviewExists) {
+                    log.warn("物化视图payment_reconciliation不存在");
+                } else {
+                    log.debug("物化视图payment_reconciliation存在");
+                }
+            } catch (Exception e) {
+                log.warn("检查物化视图失败: {}", e.getMessage());
+            }
+            
+            // 检查所有必要的表
+            for (String tableName : requiredTables) {
+                ResultSet rs = stmt.executeQuery(
+                    "SELECT EXISTS (" +
+                    "   SELECT FROM pg_catalog.pg_tables " +
+                    "   WHERE schemaname = 'public' " +
+                    "   AND tablename = '" + tableName + "'" +
+                    ");"
+                );
+                
+                boolean tableExists = false;
+                if (rs.next()) {
+                    tableExists = rs.getBoolean(1);
+                }
+                rs.close();
+                
+                if (!tableExists) {
+                    log.warn("表[{}]不存在", tableName);
+                    return false;
+                } else {
+                    log.debug("表[{}]存在", tableName);
+                }
+            }
+            
+            return true;
         } catch (Exception e) {
-            log.error("加载PostgreSQL初始化脚本失败", e);
+            log.error("检查必要表是否存在时出错: {}", e.getMessage(), e);
+            return false;
         }
     }
 
@@ -793,6 +927,37 @@ public class DatabaseSchemaInitializer {
         } catch (SQLException e) {
             log.warn("检查列 {} 是否存在时出错", columnName, e);
             return false;
+        }
+    }
+
+    /**
+     * 手动触发初始化数据库结构
+     * 用于通过Controller API手动初始化
+     */
+    public void initializeSchema() {
+        log.info("手动触发初始化数据库结构...");
+        // 临时设置skipSqlExecution为false，强制执行SQL脚本
+        boolean originalSkipValue = this.skipSqlExecution;
+        this.skipSqlExecution = false;
+        
+        try {
+            if (isPostgreSQLDatabase()) {
+                loadPostgreSQLSchema();
+                // 确保关键表存在
+                ensureRefundOrderTableExists();
+                ensurePayOrderDivisionRecordTableExists();
+                ensureTransferOrderTableExists();
+                log.info("PostgreSQL数据库结构初始化完成");
+            } else {
+                loadMySQLSchema();
+                log.info("MySQL数据库结构初始化完成");
+            }
+        } catch (Exception e) {
+            log.error("手动初始化数据库结构失败", e);
+            throw e;
+        } finally {
+            // 恢复原始设置
+            this.skipSqlExecution = originalSkipValue;
         }
     }
 } 

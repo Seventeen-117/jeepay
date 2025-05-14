@@ -40,9 +40,6 @@ import java.util.Map;
 @Service
 @Slf4j
 public class PostgreSQLReconciliationServiceAdapter {
-
-    @Autowired
-    private PostgreSQLReconciliationService jdbcTemplateService;
     
     @Autowired
     private PostgreSQLReconciliationServiceMybatis mybatisService;

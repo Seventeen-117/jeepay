@@ -19,4 +19,9 @@ CREATE INDEX IF NOT EXISTS idx_compensation_records_backup_if_code ON payment_co
 -- 假设payment_reconciliation是物化视图(materialized view)而不是普通视图
 -- 如果是普通视图，则这些索引创建语句会失败
 CREATE INDEX IF NOT EXISTS idx_payment_reconciliation_discrepancy_type ON payment_reconciliation(discrepancy_type);
-CREATE INDEX IF NOT EXISTS idx_payment_reconciliation_is_fixed ON payment_reconciliation(is_fixed); 
+CREATE INDEX IF NOT EXISTS idx_payment_reconciliation_is_fixed ON payment_reconciliation(is_fixed);
+
+CREATE INDEX IF NOT EXISTS idx_t_pay_order_compensation_status ON t_pay_order_compensation (state);
+CREATE INDEX IF NOT EXISTS idx_t_pay_order_compensation_create_time ON t_pay_order_compensation (created_at);
+
+
