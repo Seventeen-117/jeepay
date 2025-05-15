@@ -1,0 +1,100 @@
+{
+  "Name": "payOrderRefundStateMachine",
+  "Comment": "支付订单退款处理状态机",
+  "StartState": "UpdateOrderRefundStatus",
+  "Version": "1.0.0",
+  "States": {
+    "UpdateOrderRefundStatus": {
+      "Type": "ServiceTask",
+      "ServiceName": "com.jeequan.jeepay.service.tx.PaymentTransactionService",
+      "ServiceMethod": "updateOrderRefundStatus",
+      "CompensateState": "CompensateOrderRefundStatus",
+      "Next": "DeductMerchantBalance",
+      "Input": [
+        {
+          "payOrderId": "$.[payOrderId]",
+          "refundAmount": "$.[refundAmount]"
+        }
+      ],
+      "Output": {
+        "orderRefundUpdated": "$.#root"
+      },
+      "Status": {
+        "#root != null and #root == true": "SU",
+        "#root == false": "FA",
+        "$Exception{java.lang.Throwable}": "UN"
+      }
+    },
+    "CompensateOrderRefundStatus": {
+      "Type": "ServiceTask",
+      "ServiceName": "com.jeequan.jeepay.service.tx.PaymentTransactionService",
+      "ServiceMethod": "compensateOrderRefundStatus",
+      "Input": [
+        {
+          "payOrderId": "$.[payOrderId]",
+          "refundAmount": "$.[refundAmount]"
+        }
+      ],
+      "Status": {
+        "#root != null and #root == true": "SU",
+        "#root == false": "FA",
+        "$Exception{java.lang.Throwable}": "UN"
+      }
+    },
+    "DeductMerchantBalance": {
+      "Type": "ServiceTask",
+      "ServiceName": "com.jeequan.jeepay.service.tx.PaymentTransactionService",
+      "ServiceMethod": "deductMerchantBalance",
+      "CompensateState": "CompensateMerchantBalance",
+      "Next": "ChoiceState",
+      "Input": [
+        {
+          "mchNo": "$.[mchNo]",
+          "refundAmount": "$.[refundAmount]"
+        }
+      ],
+      "Output": {
+        "balanceDeducted": "$.#root"
+      },
+      "Status": {
+        "#root != null and #root == true": "SU",
+        "#root == false": "FA",
+        "$Exception{java.lang.Throwable}": "UN"
+      }
+    },
+    "CompensateMerchantBalance": {
+      "Type": "ServiceTask",
+      "ServiceName": "com.jeequan.jeepay.service.tx.PaymentTransactionService",
+      "ServiceMethod": "compensateMerchantBalance",
+      "Input": [
+        {
+          "mchNo": "$.[mchNo]",
+          "refundAmount": "$.[refundAmount]"
+        }
+      ],
+      "Status": {
+        "#root != null and #root == true": "SU",
+        "#root == false": "FA",
+        "$Exception{java.lang.Throwable}": "UN"
+      }
+    },
+    "ChoiceState": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Expression": "orderRefundUpdated == true && balanceDeducted == true",
+          "Next": "SuccessState"
+        }
+      ],
+      "Default": "FailState"
+    },
+    "SuccessState": {
+      "Type": "Succeed"
+    },
+    "FailState": {
+      "Type": "Fail",
+      "ErrorCode": "REFUND_FAIL",
+      "Message": "Pay order refund failed"
+    }
+  }
+} 

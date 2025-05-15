@@ -36,7 +36,8 @@ public enum ApiCodeEnum{
     SYS_OPERATION_FAIL_DELETE(5001, "删除失败"),
     SYS_OPERATION_FAIL_UPDATE(5002, "修改失败"),
     SYS_OPERATION_FAIL_SELETE(5003, "记录不存在"),
-    SYS_PERMISSION_ERROR(5004, "权限错误，当前用户不支持此操作");
+    SYS_PERMISSION_ERROR(5004, "权限错误，当前用户不支持此操作"),
+    SYS_OPERATION_FAIL_SEATA(5005, "分布式事务操作失败[%s]");
 
 
     private int code;

@@ -1,0 +1,64 @@
+{
+  "Name": "payOrderUpdateStateMachine",
+  "Comment": "支付订单状态更新状态机",
+  "StartState": "UpdatePayOrderState",
+  "Version": "1.0.0",
+  "States": {
+    "UpdatePayOrderState": {
+      "Type": "ServiceTask",
+      "ServiceName": "com.jeequan.jeepay.service.tx.SeataTransactionDemoService",
+      "ServiceMethod": "updatePayOrderState",
+      "CompensateState": "CompensatePayOrderState",
+      "Next": "ChoiceState",
+      "Input": [
+        {
+          "payOrderId": "$.[payOrderId]",
+          "newState": "$.[newState]",
+          "mockException": "$.[mockException]"
+        }
+      ],
+      "Output": {
+        "updated": "$.#root"
+      },
+      "Status": {
+        "#root != null and #root == true": "SU",
+        "#root == false": "FA",
+        "$Exception{java.lang.Throwable}": "UN"
+      }
+    },
+    "CompensatePayOrderState": {
+      "Type": "ServiceTask",
+      "ServiceName": "com.jeequan.jeepay.service.tx.SeataTransactionDemoService",
+      "ServiceMethod": "compensatePayOrderState",
+      "Input": [
+        {
+          "payOrderId": "$.[payOrderId]",
+          "originalState": "$.[originalState]"
+        }
+      ],
+      "Status": {
+        "#root != null and #root == true": "SU",
+        "#root == false": "FA",
+        "$Exception{java.lang.Throwable}": "UN"
+      }
+    },
+    "ChoiceState": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Expression": "updated == true",
+          "Next": "SuccessState"
+        }
+      ],
+      "Default": "FailState"
+    },
+    "SuccessState": {
+      "Type": "Succeed"
+    },
+    "FailState": {
+      "Type": "Fail",
+      "ErrorCode": "FAIL",
+      "Message": "Pay order update failed"
+    }
+  }
+} 

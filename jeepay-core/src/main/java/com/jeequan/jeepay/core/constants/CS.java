@@ -213,4 +213,18 @@ public class CS {
         String WX_V2 = "V2";  //微信接口版本V2
         String WX_V3 = "V3";  //微信接口版本V3
     }
+    
+    // 支付订单状态
+    public static final byte PAY_STATE_INIT = 0; // 订单生成
+    public static final byte PAY_STATE_ING = 1; // 支付中
+    public static final byte PAY_STATE_SUCCESS = 2; // 支付成功
+    public static final byte PAY_STATE_FAIL = 3; // 支付失败
+    public static final byte PAY_STATE_CANCEL = 4; // 已撤销
+    public static final byte PAY_STATE_REFUND = 5; // 已退款
+    
+    // 退款状态
+    public static final byte REFUND_STATE_NONE = 0; // 未发生退款
+    public static final byte REFUND_STATE_ING = 1; // 退款中
+    public static final byte REFUND_STATE_SUCCESS = 2; // 退款成功
+    public static final byte REFUND_STATE_FAIL = 3; // 退款失败
 }

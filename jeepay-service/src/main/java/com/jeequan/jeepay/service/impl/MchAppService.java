@@ -66,7 +66,7 @@ public class MchAppService extends ServiceImpl<MchAppMapper, MchApp> {
         return mchApp;
     }
 
-    public IPage<MchApp> selectPage(IPage iPage, MchApp mchApp) {
+    public IPage<MchApp> selectPage(IPage<MchApp> iPage, MchApp mchApp) {
 
         LambdaQueryWrapper<MchApp> wrapper = MchApp.gw();
         if (StringUtils.isNotBlank(mchApp.getMchNo())) {
@@ -85,7 +85,7 @@ public class MchAppService extends ServiceImpl<MchAppMapper, MchApp> {
 
         IPage<MchApp> pages = this.page(iPage, wrapper);
 
-        pages.getRecords().stream().forEach(item -> item.setAppSecret(StringKit.str2Star(item.getAppSecret(), 6, 6, 6)));
+        pages.getRecords().forEach(item -> item.setAppSecret(StringKit.str2Star(item.getAppSecret(), 6, 6, 6)));
 
         return pages;
     }

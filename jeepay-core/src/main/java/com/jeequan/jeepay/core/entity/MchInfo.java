@@ -110,6 +110,12 @@ public class MchInfo extends BaseModel implements Serializable {
     private Byte state;
 
     /**
+     * 商户余额，用于支付分账
+     */
+    @Schema(title = "balance", description = "商户余额，用于支付分账")
+    private Long balance;
+
+    /**
      * 商户备注
      */
     @Schema(title = "remark", description = "商户备注")
