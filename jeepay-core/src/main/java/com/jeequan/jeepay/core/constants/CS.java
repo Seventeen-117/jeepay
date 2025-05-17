@@ -147,7 +147,7 @@ public class CS {
         String YSFPAY = "ysfpay";   // 云闪付开放平台
         String XXPAY = "xxpay";     // 小新支付
         String PPPAY = "pppay";     // Paypal 支付
-        String PLSPAY = "plspay";     // 计全支付plus
+        String PLSPAY = "plspay";     // 江阳科技plus
     }
 
 

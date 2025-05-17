@@ -27,7 +27,7 @@
 货币代码 | currency | 是 | String(3) | cny | 三位货币代码,人民币:cny
 退款原因 | refundReason | 是 | String(64) | 用户退货 | 退款原因  
 客户端IP | clientIp | 否 | String(32) | 210.73.10.148 | 客户端IPV4地址  
-异步通知地址 | notifyUrl | 否 | String(128) | https://www.jeequan.com/notify.htm | 退款完成后回调该URL,只有传了该值才会发起回调  
+异步通知地址 | notifyUrl | 否 | String(128) | https://www.curverun.com/notify.htm | 退款完成后回调该URL,只有传了该值才会发起回调  
 渠道参数 | channelExtra | 否 | String(256 | {"auth_code", "13920933111042"} | 特定渠道发起的额外参数,json格式字符串.详见渠道参数说明  
 扩展参数 | extraParam | 否 | String(512) | 134586944573118714 | 商户扩展参数,回调时会原样返回  
 请求时间 | reqTime | 是 | long | 1622016572190 | 请求接口时间,13位时间戳   
@@ -51,7 +51,7 @@
   "appId": "60cc09bce4b0f1c0b83761c9",
   "mchRefundNo": "mho1624007315478",
   "clientIp": "192.166.1.132",
-  "notifyUrl": "https://www.jeequan.com",
+  "notifyUrl": "https://www.curverun.com",
   "signType": "MD5",
   "currency": "cny",
   "mchNo": "M1623984572",

@@ -34,7 +34,7 @@ import org.springframework.stereotype.Service;
 import jakarta.servlet.http.HttpServletRequest;
 
 /*
- * 计全支付plus 退款回调接口实现类
+ * 江阳科技plus 退款回调接口实现类
  *
  * @author yr
  * @site curverun.com
@@ -94,7 +94,7 @@ public class PlspayChannelRefundNoticeService extends AbstractChannelRefundNotic
     }
 
     /**
-     * 验证计全支付plus通知参数
+     * 验证江阳科技plus通知参数
      *
      * @return boolean  true or false
      */

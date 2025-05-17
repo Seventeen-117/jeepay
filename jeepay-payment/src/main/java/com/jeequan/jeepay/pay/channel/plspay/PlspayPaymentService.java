@@ -10,7 +10,7 @@ import com.jeequan.jeepay.pay.util.PaywayUtil;
 import org.springframework.stereotype.Service;
 
 /**
- * 计全支付plus
+ * 江阳科技plus
  *
  * @author yurong
  * @site curverun.com

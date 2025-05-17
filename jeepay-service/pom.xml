@@ -7,8 +7,8 @@
   <artifactId>jeepay-service</artifactId>  <!-- 项目名称 -->
   <packaging>jar</packaging> <!-- 项目的最终打包类型/发布形式, 可选[jar, war, pom, maven-plugin]等 -->
   <version>${isys.version}</version> <!-- 项目当前版本号 -->
-  <description>Jeepay计全支付系统 [jeepay-service]</description> <!-- 项目描述 -->
-  <url>https://www.jeequan.com</url>
+  <description>Jeepay江阳科技系统 [jeepay-service]</description> <!-- 项目描述 -->
+  <url>https://www.curverun.com</url>
 
   <parent>
     <groupId>com.jeequan</groupId>
@@ -59,6 +59,13 @@
     <dependency>
       <groupId>io.seata</groupId>
       <artifactId>seata-all</artifactId>
+    </dependency>
+    
+    <!-- Hessian serialization for Seata -->
+    <dependency>
+      <groupId>com.caucho</groupId>
+      <artifactId>hessian</artifactId>
+      <version>4.0.66</version>
     </dependency>
     
     <!-- JSON libraries for Seata parser -->

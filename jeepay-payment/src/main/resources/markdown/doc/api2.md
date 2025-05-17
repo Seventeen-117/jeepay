@@ -27,8 +27,8 @@
 客户端IP | clientIp | 否 | String(32) | 210.73.10.148 | 客户端IPV4地址  
 商品标题 | subject | 是 | String(64) | Jeepay商品标题测试 | 商品标题  
 商品描述 | body | 是 | String(256) | Jeepay商品描述测试 | 商品描述  
-异步通知地址 | notifyUrl | 否 | String(128) | https://www.jeequan.com/notify.htm | 支付结果异步回调URL,只有传了该值才会发起回调  
-跳转通知地址 | returnUrl | 否 | String(128) | https://www.jeequan.com/return.htm | 支付结果同步跳转通知URL
+异步通知地址 | notifyUrl | 否 | String(128) | https://www.curverun.com/notify.htm | 支付结果异步回调URL,只有传了该值才会发起回调  
+跳转通知地址 | returnUrl | 否 | String(128) | https://www.curverun.com/return.htm | 支付结果同步跳转通知URL
 失效时间 | expiredTime | 否 | int | 3600 | 订单失效时间,单位秒,默认2小时.订单在(创建时间+失效时间)后失效   
 渠道参数 | channelExtra | 否 | String(256 | {"auth_code", "13920933111042"} | 特定渠道发起的额外参数,json格式字符串.详见渠道参数说明  
 分账模式 | divisionMode | 否 | int | 0 | 分账模式： 0-该笔订单不允许分账[默认], 1-支付成功按配置自动完成分账, 2-商户手动分账(解冻商户金额)  
@@ -55,7 +55,7 @@
   "channelExtra": "{\"authCode\":\"280812820366966512\"}",
   "appId": "60cc09bce4b0f1c0b83761c9",
   "clientIp": "192.166.1.132",
-  "notifyUrl": "https://www.jeequan.com",
+  "notifyUrl": "https://www.curverun.com",
   "signType": "MD5",
   "currency": "cny",
   "returnUrl": "",
@@ -81,7 +81,7 @@
 商户订单号 | mchOrderNo | 是 | String(30) | 20160427210604000490 | 返回商户传入的订单号  
 订单状态 | orderState | 是 | int | 2 | 支付订单状态<br>0-订单生成<br>1-支付中<br>2-支付成功<br>3-支付失败<br>4-已撤销<br>5-已退款<br>6-订单关闭  
 支付数据类型 | payDataType | 是 | String | payUrl | 支付参数类型<br>payUrl-跳转链接的方式<br>form-表单方式<br>wxapp-微信支付参数(微信公众号,小程序,app支付时)<br>aliapp-支付宝app支付参数<br>ysfapp-云闪付app支付参数<br>codeUrl-二维码地址<br>codeImgUrl-二维码图片地址<br>none-空支付参数 
-支付数据 | payData | 否 | String | http://www.jeequan.com/pay.html | 发起支付用到的支付参数，如果微信公众号支付等 
+支付数据 | payData | 否 | String | http://www.curverun.com/pay.html | 发起支付用到的支付参数，如果微信公众号支付等 
 渠道错误码 | errCode | 否 | String | ACQ.PAYMENT_AUTH_CODE_INVALID | 上游渠道返回的错误码
 渠道错误描述 | errMsg | 否 | String | Business Failed 失败 | 上游渠道返回的错误描述
 
@@ -412,7 +412,7 @@ YSF_JSAPI | 云闪付jsapi
 商户号 | mchNo | 是 | String(30) | M1621873433953 | 商户号 
 应用ID | appId | 是 | String(24) | 60cc09bce4b0f1c0b83761c9 | 应用ID
 支付接口 | ifCode | 是 | String(30) | AUTO | 目前只支持传 AUTO   
-跳转地址 | redirectUrl | 是 | String | https://www.jeequan.com | 获取到用户ID后，会携带用户ID参数跳转到该地址  
+跳转地址 | redirectUrl | 是 | String | https://www.curverun.com | 获取到用户ID后，会携带用户ID参数跳转到该地址  
 请求时间 | reqTime | 是 | long | 1622016572190 | 请求接口时间,13位时间戳  
 接口版本 | version | 是 | String(3) | 1.0 | 接口版本号，固定：1.0  
 签名 | sign | 是 | String(32) | C380BEC2BFD727A4B6845133519F3AD6 | 签名值，详见签名算法  
@@ -425,7 +425,7 @@ YSF_JSAPI | 云闪付jsapi
   "mchNo": "M1621873433953",
   "appId": "60cc09bce4b0f1c0b83761c9",
   "ifCode": "wxpay",
-  "redirectUrl": "https://www.jeequan.com",
+  "redirectUrl": "https://www.curverun.com",
   "sign": "A5C93D50743126ED91AA6ED96CDEEEF8",
   "signType": "MD5",
   "reqTime": "1622011236571",
@@ -442,7 +442,7 @@ YSF_JSAPI | 云闪付jsapi
 `完整跳转URL示例`
 
 ```html
-https://www.jeequan.com/toU?channelUserId=o6BcIwvSiRpfS8e_UyfQNrYuk2LI
+https://www.curverun.com/toU?channelUserId=o6BcIwvSiRpfS8e_UyfQNrYuk2LI
 ```
 
 ## 返回码

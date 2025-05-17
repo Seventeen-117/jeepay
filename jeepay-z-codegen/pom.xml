@@ -7,8 +7,8 @@
     <artifactId>jeepay-z-codegen</artifactId>  <!-- 项目名称 -->
     <packaging>jar</packaging> <!-- 项目的最终打包类型/发布形式, 可选[jar, war, pom, maven-plugin]等 -->
     <version>1.0-SNAPSHOT</version> <!-- 项目当前版本号 -->
-    <description>Jeepay计全支付系统 [代码生成工具]</description> <!-- 项目描述 -->
-    <url>https://www.jeequan.com</url>
+    <description>Jeepay江阳科技系统 [代码生成工具]</description> <!-- 项目描述 -->
+    <url>https://www.curverun.com</url>
 
     <!-- 配置属性声明, 支持自定义参数 -->
     <properties>

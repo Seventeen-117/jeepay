@@ -24,7 +24,7 @@ public class SwaggerConfig {
                 // 设置OpenAPI文档的联系信息，包括联系人姓名为"patrick"，邮箱为"patrick@gmail.com"。
                 .contact(new Contact().name("jeequan"))
                 // 设置OpenAPI文档的许可证信息，包括许可证名称为"Apache 2.0"，许可证URL为"http://springdoc.org"。
-                .license(new License().name("Apache 2.0").url("https://www.jeequan.com"))
+                .license(new License().name("Apache 2.0").url("https://www.curverun.com"))
             );
     }
 

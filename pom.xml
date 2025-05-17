@@ -9,8 +9,8 @@
 
   <name>jeepay</name>
   <version>Final</version> <!-- pom版本号/项目总版本号， 每个子项目引入的版本号必须一致。  最外层的pom.xml版本号保持不变，始终为Final版本。 更新版本请更改isys.version属性  -->
-  <description>Jeepay计全支付系统</description> <!-- 项目描述 -->
-  <url>https://www.jeequan.com</url>
+  <description>Jeepay江阳科技系统</description> <!-- 项目描述 -->
+  <url>https://www.curverun.com</url>
 
   <!-- 继承：Spring Boot Parent -->
   <parent>

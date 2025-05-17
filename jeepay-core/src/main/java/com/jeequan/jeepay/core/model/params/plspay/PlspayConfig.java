@@ -18,7 +18,7 @@ package com.jeequan.jeepay.core.model.params.plspay;
 import lombok.Data;
 
 /*
- * 计全支付plus， 通用配置信息
+ * 江阳科技plus， 通用配置信息
  *
  * @author yurong
  * @site curverun.com

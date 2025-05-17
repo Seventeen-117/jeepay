@@ -1,11 +1,11 @@
 <p align="center">
-	<a href="https://www.jeequan.com"><img src="https://jeequan.oss-cn-beijing.aliyuncs.com/jeepay/img/jeepay_logo.svg"></a>
+	<a href="https://www.curverun.com"><img src="https://jeequan.oss-cn-beijing.aliyuncs.com/jeepay/img/jeepay_logo.svg"></a>
 </p>
 <p align="center">
-	<strong>计全支付 - 让支付接入更简单</strong>
+	<strong>江阳科技 - 让支付接入更简单</strong>
 </p>
 <p align="center">
-	👉 <a href="https://www.jeequan.com">https://www.jeequan.com</a> 👈
+	👉 <a href="https://www.curverun.com">https://www.curverun.com</a> 👈
 </p>
 
 <p align="center">
@@ -46,7 +46,7 @@ Jeepay使用`Spring Boot`和`Ant Design Vue`开发，集成`Spring Security`实�
 
 ## 名称的由来
 
-Jeepay = Jee + pay，是由原XxPay支付系统作者带领团队开发，“Jee”是公司计全科技名称的表示，pay表示支付。中文名称为计全支付，释为：计出万全、支付安全，让支付更加方便安全。
+Jeepay = Jee + pay，是由原XxPay支付系统作者带领团队开发，“Jee”是公司计全科技名称的表示，pay表示支付。中文名称为江阳科技，释为：计出万全、支付安全，让支付更加方便安全。
 
 ## 项目特点
 * 支持多渠道对接，多种支付产品
@@ -70,7 +70,7 @@ Jeepay = Jee + pay，是由原XxPay支付系统作者带领团队开发，“Jee
 计全官方团队基于开源版代码，开发了对接各家三方支付和银行的对接代码。为了让用户能够快速接入支付，目前已将对接好的代码发布到官方接口市场，并不断更新。
 如有需要，可前去接口市场购买。
 
-接口市场：https://www.jeequan.com/ifstore/list.html
+接口市场：https://www.curverun.com/ifstore/list.html
 
 安装说明：https://doc.jeequan.com/#/integrate/open/dev/113
 
@@ -84,13 +84,13 @@ Jeepay = Jee + pay，是由原XxPay支付系统作者带领团队开发，“Jee
 
 # 系统架构
 
-> Jeepay计全支付系统架构图
+> Jeepay江阳科技系统架构图
 
 ![Jeepay系统架构图](https://jeequan.oss-cn-beijing.aliyuncs.com/jeepay/img/jeepay_framework.png "Jeepay系统架构图")
 
-> Jeepay计全支付聚合码支付流程图
+> Jeepay江阳科技聚合码支付流程图
 
-![Jeepay计全支付聚合码支付流程图](https://jeequan.oss-cn-beijing.aliyuncs.com/jeepay/img/jeepay_qr.png "Jeepay计全支付聚合码支付流程图")
+![Jeepay江阳科技聚合码支付流程图](https://jeequan.oss-cn-beijing.aliyuncs.com/jeepay/img/jeepay_qr.png "Jeepay江阳科技聚合码支付流程图")
 
 ## 核心技术栈
 
@@ -132,10 +132,10 @@ jeepay
 # 项目体验
 
 ## 支付体验
-- Jeepay支付流程体验：[https://www.jeequan.com/demo/jeepay_cashier.html](https://www.jeequan.com/demo/jeepay_cashier.html "Jeepay支付体验")
+- Jeepay支付流程体验：[https://www.curverun.com/demo/jeepay_cashier.html](https://www.curverun.com/demo/jeepay_cashier.html "Jeepay支付体验")
 
 ## 管理平台
-- Jeepay运营平台和商户系统演体验：[https://www.jeequan.com/doc/detail_84.html](https://www.jeequan.com/doc/detail_84.html "Jeepay支付系统体验")
+- Jeepay运营平台和商户系统演体验：[https://www.curverun.com/doc/detail_84.html](https://www.curverun.com/doc/detail_84.html "Jeepay支付系统体验")
 
 
 

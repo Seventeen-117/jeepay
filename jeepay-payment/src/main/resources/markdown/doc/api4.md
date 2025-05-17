@@ -30,7 +30,7 @@
 收款人开户行名称 | bankName | 否 | String(64) | 中国工商银行 | 当前仅作为记录
 客户端IP | clientIp | 否 | String(32) | 210.73.10.148 | 客户端IPV4地址  
 转账备注信息 | transferDesc | 否 | String(128) | 测试转账 | 转账备注信息
-异步通知地址 | notifyUrl | 否 | String(128) | https://www.jeequan.com/notify.htm | 转账完成后回调该URL,只有传了该值才会发起回调
+异步通知地址 | notifyUrl | 否 | String(128) | https://www.curverun.com/notify.htm | 转账完成后回调该URL,只有传了该值才会发起回调
 渠道参数 | channelExtra | 否 | String(256 | {} | 特定渠道发起的额外参数,json格式字符串
 扩展参数 | extraParam | 否 | String(512) | 134586944573118714 | 商户扩展参数,回调时会原样返回  
 请求时间 | reqTime | 是 | long | 1622016572190 | 请求接口时间,13位时间戳   

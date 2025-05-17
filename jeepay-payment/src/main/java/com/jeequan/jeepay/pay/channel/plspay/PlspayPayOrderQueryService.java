@@ -34,7 +34,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
- * 计全支付plus  查询订单
+ * 江阳科技plus  查询订单
  *
  * @author yurong
  * @site curverun.com

@@ -23,7 +23,7 @@ import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
 
 /*
- * 计全支付plus， 普通商户参数定义
+ * 江阳科技plus， 普通商户参数定义
  *
  * @author yurong
  * @site curverun.com
